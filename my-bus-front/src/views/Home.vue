@@ -1,404 +1,293 @@
 <template>
-  <div class="home-screen">
-    <header class="topbar" role="banner" aria-label="網站標題">
-      <div class="brand">
-        <div class="app-name">小巴動態</div>
+  <div class="home-main">
+    <!-- 標題區 -->
+    <div class="home-header">
+      <div class="home-title">花蓮市民小巴</div>
+      <div class="home-contact">聯絡資訊: 03-1234567</div>
+    </div>
+
+    <!-- 功能按鈕區 -->
+    <div class="home-action-row">
+      <button class="home-btn" @click="goAllRoutes">ALL</button>
+      <button class="home-btn" @click="goMember">會員專區</button>
+    </div>
+
+    <!-- 小巴動態 -->
+    <div class="home-dynamic">
+      {{ dynamicText }}
+    </div>
+
+    <!-- 熱門路線 (自動撐滿空間) -->
+<div class="home-route-list">
+  <div
+    v-for="route in routes"
+    :key="route.id"
+    class="home-route-card"
+    @click="goDetail(route.id)"
+    
+    style="cursor:pointer"
+  >
+    <div class="route-leftbar"></div>
+    <div class="route-main">
+      <div class="route-title">{{ route.name }}</div>
+      <div class="route-stops">
+        <span class="route-stop route-from">{{ route.from_ }}</span>
+        <span class="route-arrow">➔</span>
+        <span class="route-stop route-to">{{ route.to }}</span>
       </div>
-    </header>
+    </div>
+  </div>
+</div>
 
-    <main class="main" role="main">
-      <!-- 單一大型搜尋欄 -->
-      <section class="search-area" aria-label="搜尋路線或站牌">
-        <div class="search-box">
-          <input
-            id="q"
-            v-model="q"
-            type="search"
-            inputmode="search"
-            placeholder="輸入路線或站牌（例如：公車A、站A）"
-            aria-label="輸入路線或站牌"
-            @keyup.enter="doSearch"
-          />
-          <button class="btn-search" @click="doSearch" aria-label="搜尋">搜尋</button>
-        </div>
 
-        <div class="member-actions">
-          <button class="btn-search" @click="$router.push('/search')">所有路線</button>
-          <button class="btn-login" @click="goLogin">會員登入</button>
-        </div>
-
-        <div class="quick-note">只需輸入一個關鍵字即可快速查詢</div>
-      </section>
-
-      <!-- 熱門兩條 -->
-      <section class="popular" aria-label="熱門路線">
-        <h2 class="section-title">熱門路線</h2>
-
-        <ul class="popular-list">
-          <li v-for="r in topRoutes" :key="r.id" class="popular-item">
-            <button class="route-card" @click="openDetail(r)" :aria-label="`查看 ${r.name}`">
-              <!-- ===== Live info (放在站牌上方) ===== -->
-              <div class="live-box" :class="`live-${r.live.status}`" role="status" aria-live="polite">
-                <div class="live-left">
-                  <svg class="bus-icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <rect x="3" y="4" width="18" height="12" rx="2" />
-                    <circle cx="7.5" cy="18.5" r="1.4" />
-                    <circle cx="16.5" cy="18.5" r="1.4" />
-                  </svg>
-                  <div class="live-text">
-                    <div class="live-status">{{ liveLabel(r.live.status) }}</div>
-                    <div class="live-sub">{{ r.live.subtitle }}</div>
-                  </div>
-                </div>
-                <div class="live-right">
-                  <div class="arrival-small" v-if="r.live.nextArrivals?.length">
-                    {{ r.live.nextArrivals[0] }}
-                    <span class="next-more" v-if="r.live.nextArrivals.length>1"> • {{ r.live.nextArrivals.length-1 }} more</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 主要內容 -->
-              <div class="route-body">
-                <div class="route-left">
-                  <div class="route-name">{{ r.name }}</div>
-                  <div class="route-desc">{{ r.from }} → {{ r.to }}</div>
-                  <div class="route-next">下一班：{{ r.next }}（約 {{ r.eta }} 分）</div>
-                </div>
-                <div class="route-action">
-                  <span class="chev">詳細 ➜</span>
-                </div>
-              </div>
-            </button>
-          </li>
-        </ul>
-      </section>
-    </main>
-
-    <!-- 底部廣告 / 超連結欄（請放 public/ad.jpg 或改 src） -->
-    <footer class="ad-footer" role="contentinfo">
-      <a class="ad-link" :href="adUrl" target="_blank" rel="noopener noreferrer" aria-label="點擊查看廣告">
-        <img src="/ad.jpg" alt="活動廣告" class="ad-image" />
-      </a>
-    </footer>
+    <!-- Footer image -->
+    <div class="home-footer-image">
+      <img src="/ad.jpg" alt="Footer" />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
+interface RouteSimple {
+  id: string
+  name: string
+  from_: string
+  to: string
+  desc?: string
+}
+
+const routes = ref<RouteSimple[]>([])
+const dynamicText = ref('小巴動態：今日所有路線正常運行')
 const router = useRouter()
-const q = ref('')
 
-/* 範例路線含 live info（real app 請改為後端回傳） */
-const allRoutes = reactive([
-  {
-    id: 'A',
-    name: '公車 A',
-    from: '站A',
-    to: '站B',
-    next: '11:20',
-    eta: 5,
-    live: { status: 'approaching', subtitle: '2站外 • 約 4 分', nextArrivals: ['11:20', '11:35'] }
-  },
-  {
-    id: 'B',
-    name: '公車 B',
-    from: '站C',
-    to: '站D',
-    next: '11:27',
-    eta: 12,
-    live: { status: 'normal', subtitle: '正常 • 依班表', nextArrivals: ['11:27', '11:40'] }
-  },
-  {
-    id: 'C',
-    name: '公車 C',
-    from: '站E',
-    to: '站F',
-    next: '11:34',
-    eta: 21,
-    live: { status: 'delayed', subtitle: '延誤中 • +8 分', nextArrivals: ['11:42'] }
+function goDetail(id: string) { router.push(`/detail/${id}`) }
+
+function goMember() {
+  router.push('/member')  // 跳到會員頁（請確認路由名稱對應）
+}
+
+
+function goAllRoutes() {
+  router.push('/Search')
+}
+
+async function fetchRoutes() {
+  try {
+    const res = await fetch('/api/bus/routes')
+    console.log(res)
+    if (!res.ok) throw new Error('Fetch failed')
+    const data = await res.json()
+    console.log(data)
+    routes.value = data.slice(0, 2)  // 只取前2個
+  } catch {
+    routes.value = []
   }
-])
-
-const topRoutes = computed(() => allRoutes.slice(0, 2))
-const adUrl = 'https://example.com'
-
-function doSearch() {
-  const v = q.value.trim()
-  if (!v) {
-    alert('請輸入路線或站牌，例如：公車A 或 站A')
-    return
-  }
-  router.push({ path: '/search', query: { q: v } })
 }
 
-function openDetail(r: any) {
-  router.push({ name: 'Detail', params: { id: r.id } })
-}
-function goRegister() { router.push('/register') }
-function goLogin() { router.push('/login') }
 
-/* liveLabel helper */
-function liveLabel(status: string) {
-  if (status === 'approaching') return '即將進站'
-  if (status === 'arrived') return '進站中'
-  if (status === 'delayed') return '延誤'
-  return '正常'
-}
-
-/* -- Demo: mock auto-change live statuses every 6s --
-   在真實專案把這段改為 fetch / websocket 訂閱即可 */
-let timer: number | null = null
-onMounted(() => {
-  timer = window.setInterval(() => {
-    // 亂數模擬狀態改變（示範）
-    allRoutes.forEach((r, i) => {
-      const chance = Math.random()
-      if (chance < 0.2) {
-        r.live.status = 'arrived'
-        r.live.subtitle = `${Math.floor(Math.random()*2)+1} 站外 • 即將到站`
-        r.live.nextArrivals = ['進站中']
-      } else if (chance < 0.6) {
-        r.live.status = 'approaching'
-        r.live.subtitle = `${Math.floor(Math.random()*3)+1} 站外 • 約 ${Math.floor(Math.random()*6)+2} 分`
-        r.live.nextArrivals = ['11:20','11:35']
-      } else if (chance < 0.85) {
-        r.live.status = 'normal'
-        r.live.subtitle = '正常 • 依班表'
-        r.live.nextArrivals = ['11:27']
-      } else {
-        r.live.status = 'delayed'
-        r.live.subtitle = `延誤 +${Math.floor(Math.random()*10)+3} 分`
-        r.live.nextArrivals = ['12:00']
-      }
-    })
-  }, 6000)
-})
-onUnmounted(() => {
-  if (timer) window.clearInterval(timer)
-})
+onMounted(fetchRoutes)
 </script>
 
 <style scoped>
-
-.app-name{
-  font-size:24px;
-  font-weight:700;
-  color: #1a293a; /* ← 改這裡，直接深藍或深灰 */
-  letter-spacing:0.2px;
+body {
+  background: #f7f3ee;
+  margin: 0;
+  font-family: 'Noto Sans TC', Arial, sans-serif;
 }
 
-
-.home-screen{
-  --bg-900: #f7fafc;           /* 頁面背景 */
-  --bg-800: #f1f5f9;
-  --card: #fff;                /* 卡片白 */
-  --glass: rgba(255,255,255,0.78);
-  --accent: #ff7a30;           /* 強調橘 */
-  --accent-hover: #f05c00;
-  --accent-2: #257baf;         /* 補色-科技藍 */
-  --ok: #38b000;
-  --warn: #ffd600;
-  --danger: #f94c57;
-  --text: #181f2a;             /* 主文字 */
-  --muted: #8c9cab;
-  --border: #e6ecf2;
-  --shadow-1: 0 4px 24px 0 rgba(24,31,42,0.07);
-  --shadow-2: 0 1.5px 6px 0 rgba(0,0,0,0.03);
-
-  min-height:100vh;
-  background: var(--bg-900);
-  color: var(--text);
-  font-family: "Inter", "Noto Sans TC", system-ui, -apple-system, Arial, "PingFang TC";
-  -webkit-font-smoothing:antialiased;
+/* 主容器 */
+.home-main {
+  width: 100%;
+  max-width: 410px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 18px 10px 0 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #f7f3ee;
+  box-sizing: border-box;
 }
 
-.topbar{
-  padding:18px 0 12px 0;
-  background: transparent;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  border-bottom: 1.5px solid var(--border);
-}
-.app-name{
-  font-size:36px;
-  font-weight:700;
-  color: #1a293a !important;
-  letter-spacing:0.2px;
+/* 標題區塊 */
+.home-header {
+  width: 100%;
+  background: linear-gradient(90deg, #ff9364, #ff784b);
+  border-radius: 15px;
+  margin-bottom: 18px;
+  padding: 22px 0 10px 0;
+  box-shadow: 0 3px 14px rgba(255,150,120,0.08);
+  text-align: center;
 }
 
-/* main */
-.main{
-  padding:24px 0 0 0;
-  display:flex;
-  flex-direction:column;
-  gap:18px;
-  align-items:center;
-}
-
-/* search */
-.search-area{ width:100%; display:flex; flex-direction:column; gap:12px; align-items:center; }
-.search-box{
-  width:100%;
-  max-width:760px;
-  display:flex;
-  gap:10px;
-  align-items:center;
-  background: var(--card);
-  border-radius: 12px;
-  box-shadow: var(--shadow-1);
-  border:1.5px solid var(--border);
-  padding:6px 8px;
-}
-.search-box input{
-  flex:1;
-  font-size:17px;
-  padding:12px 16px;
-  border:none;
-  border-radius:10px;
-  background:transparent;
-  color: var(--text);
-}
-.search-box input::placeholder{ color: var(--muted); font-size:16px; }
-.search-box input:focus{ outline: none; background: #f3f5f8; }
-
-.btn-search{
-  min-width:108px;
-  border-radius:10px;
-  padding:11px 0;
-  font-weight:700;
-  font-size:15px;
-  color:#fff;
-  background: var(--accent);
-  border:none;
-  cursor:pointer;
-  box-shadow: 0 4px 20px rgba(255,122,48,0.09);
-  transition: background .15s, transform .12s;
-}
-.btn-search:hover{ background: var(--accent-hover); transform: translateY(-1.5px);}
-.btn-search:active{ background: var(--accent-2); }
-
-.member-actions{
-  width:100%; max-width:760px; display:flex; gap:10px; justify-content:center;
-}
-.btn-register, .btn-login{
-  flex:1;
-  padding:12px 0;
-  border-radius:10px;
-  font-size:15px;
-  font-weight:700;
-  color: var(--accent-2);
-  border: 1.5px solid var(--border);
-  background: #f3f8fa;
-  cursor:pointer;
-  box-shadow: var(--shadow-2);
-  transition: background .13s, color .13s;
-}
-.btn-register{
-  background: var(--accent);
+.home-title {
+  font-size: 22px;
   color: #fff;
-  border: none;
+  font-weight: bold;
+  margin-bottom: 3px;
+  letter-spacing: 1.5px;
 }
-.btn-register:hover{ background: var(--accent-hover);}
-.btn-login:hover{ color: var(--accent-hover); background: #e9f3fa;}
-.section-title{
-  width:100%; max-width:760px;
-  font-size:18px; font-weight:700;
-  color: var(--accent-2);
-  margin-top:14px;
-  margin-bottom:0;
-}
-
-/* 卡片與熱門路線列表 */
-.popular-list{
-  width:100%; /* ← 這樣就會撐滿 */
-}
-
-.route-card{
-  width:100%;
-  padding:18px 16px 14px 16px;
-  border-radius:14px;
-  background: var(--card);
-  border: 1.5px solid var(--border);
-  box-shadow: var(--shadow-2);
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-  cursor:pointer;
-  transition: box-shadow .13s, border-color .13s, transform .13s;
-}
-.route-card:hover{
-  box-shadow: 0 6px 24px rgba(37,123,175,0.10), 0 2.5px 10px 0 rgba(0,0,0,0.06);
-  border-color: var(--accent-2);
-  transform:translateY(-2.5px) scale(1.01);
-}
-.route-card:active{ transform: scale(0.99); }
-
-.route-body{ display:flex; justify-content:space-between; align-items:center; gap:12px; }
-
-.live-box{
-  display:flex; align-items:center; gap:12px; min-width:0;
-  padding:6px 0 0 0; border-radius:8px;
-  background: none;
-  border:none;
-}
-.bus-icon{ width:28px; height:28px; fill:var(--accent-2); flex-shrink:0;}
-.live-text{ display:flex; flex-direction:column; min-width:0; }
-.live-status{ font-size:16px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.live-sub{ font-size:13px; color:var(--muted); margin-top:2px; }
-.arrival-small{
-  font-size:14.5px; font-weight:700;
+.home-contact {
+  font-size: 14px;
   color: #fff;
-  background: var(--accent);
-  padding:10px 16px; border-radius:10px;
-  min-width:72px; text-align:center;
-  box-shadow: 0 8px 18px rgba(255,122,48,0.10);
+  opacity: 0.84;
+  letter-spacing: 0.8px;
+}
+
+/* 按鈕列 */
+.home-action-row {
+  display: flex;
+  width: 100%;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.home-btn {
+  flex: 1;
+  background: linear-gradient(90deg, #fff8f3 70%, #ffe6d8 120%);
+  color: #e74c3c;
+  font-weight: bold;
+  font-size: 17px;
   border: none;
+  border-radius: 13px;
+  padding: 13px 0;
+  box-shadow: 0 2px 10px rgba(255,170,120,0.09);
+  cursor: pointer;
+  transition: background 0.17s, box-shadow 0.13s;
 }
 
-.status-chip{
-  display:inline-block;
-  margin-left:10px; padding:4px 10px; border-radius:8px;
-  font-size:12px; font-weight:700;
-  background: #f4f8fb;
-  color: var(--accent-2);
-  border: 1px solid var(--border);
+/* 小巴動態 */
+.home-dynamic {
+  width: 100%;
+  background: #ffe9db;
+  color: #de8538;
+  border-radius: 11px;
+  padding: 11px 0;
+  text-align: center;
+  font-size: 16px;
+  margin-bottom: 18px;
+  box-shadow: 0 2px 12px rgba(255,180,110,0.09);
+  font-weight: 500;
 }
 
-.live-approaching .status-chip{ background: #fff7ee; color: var(--accent); border-color: #ffe4d1;}
-.live-arrived .status-chip{ background: #fff4f4; color: var(--danger); border-color: #fbd1d1;}
-.live-normal .status-chip{ background: #effbf0; color: var(--ok); border-color: #baf6cc;}
-.live-delayed .status-chip{ background: #fff4f4; color: var(--danger); border-color: #fbd1d1;}
-
-.route-left{ display:flex; flex-direction:column; gap:6px; min-width:0; }
-.route-name{ font-size:16.5px; font-weight:800; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.route-desc, .route-next{ font-size:13.5px; color:var(--muted); line-height:1.3; }
-
-.route-action{ display:flex; align-items:center; justify-content:flex-end; gap:8px; }
-.chev{ color:var(--muted); font-size:14px; }
-
-.ad-footer{
-  padding:24px 12px 32px;
-  display:flex; justify-content:center; align-items:center; background:transparent; width:100%;
+/* 熱門路線外層，自動撐滿剩餘空間，卡片均分 */
+.home-route-list {
+  width: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 19px;
+  justify-content: stretch;
 }
-.ad-link{
-  display:block; width:100%; max-width:760px; border-radius:12px; overflow:hidden;
-  box-shadow: 0 10px 32px rgba(24,31,42,0.08);
-  border:1.5px solid var(--border);
-  background: #f9fafc;
-}
-.ad-image{ width:100%; height:112px; object-fit:cover; display:block; transition: transform .17s; }
-.ad-link:hover .ad-image{ transform: scale(1.015); }
 
-button, .route-card{ min-height:54px; }
-@media (max-width:420px){
-  .search-box input{ font-size:15px; padding:10px; }
-  .btn-search{ min-width:88px; padding:10px; font-size:13px; }
-  .ad-image{ height:84px; }
-  .route-name{ font-size:15px; }
-  .arrival-small{ min-width:54px; padding:8px 6px; font-size:12.5px; }
+/* 熱門路線卡片 - 高度自動均分剩餘空間，左條+卡片感 */
+.home-route-card {
+  height: 150px;
+  position: relative;
+  background: #fff;
+  border-radius: 15px;
+  box-shadow: 0 2px 14px rgba(255,150,120,0.10);
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  margin-bottom: 17px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow 0.15s, background 0.13s;
+}
+
+.home-route-card:hover {
+  background: #fff3ea;
+  box-shadow: 0 8px 32px rgba(255,140,70,0.15);
+}
+
+.route-leftbar {
+  width: 10px;
+  background: #ffd8c5;
+  border-radius: 10px 0 0 10px;
+  margin-right: 0;
+}
+
+.route-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 18px 18px 14px 18px;
+  min-width: 0;
+}
+
+.route-title {
+  color: #ff7f50;
+  font-weight: bold;
+  font-size: 32px;
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+
+.route-stops {
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.route-stop {
+  color: #ef914b;
+  font-size: 14.7px;
+  font-weight: 600;
+  max-width: 120px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.route-arrow {
+  color: #ffb489;
+  font-size: 17px;
+  margin: 0 3px;
+  font-weight: 700;
+}
+.home-route-desc {
+  color: #8d8c89;
+  font-size: 15.3px;
+  font-weight: 500;
+}
+
+/* Footer 圖片 */
+.home-footer-image {
+  width: 100%;
+  margin-top: 18px;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: center;
+}
+.home-footer-image img {
+  width: 90%;
+  max-width: 270px;
+  border-radius: 11px;
+  object-fit: contain;
+}
+
+
+/* 手機響應 (RWD) */
+@media (max-width: 600px) {
+  .home-main {
+    max-width: 98vw;
+    padding: 10px 2vw 0 2vw;
+  }
+  .home-header, .home-action-row, .home-dynamic, .home-route-list, .home-footer-image {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .home-footer-image img {
+    width: 98vw;
+    max-width: 100vw;
+  }
+  
 }
 </style>

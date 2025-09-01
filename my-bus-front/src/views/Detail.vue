@@ -1,146 +1,360 @@
 <template>
-  <div class="screen detail-screen">
-    <header class="topbar">
-      <button class="btn-back" @click="back">←</button>
-      <div class="title">{{ routeData?.name || '路線' }}</div>
-      <div class="spacer"></div>
-    </header>
+  <div class="detail-main-bg">
+    <!-- Header 區塊 -->
+    <div class="detail-header">
+      <button class="back-btn" @click="goBack">←</button>
+      {{ routeTitle }}
+    </div>
 
-    <main class="main">
-      <section class="route-card">
+    <!-- 去回程切換按鈕 -->
+    <div class="stop-tabs">
+      <button
+        class="stop-tab"
+        :class="{ active: direction === 0 }"
+        @click="changeDirection(0)"
+      >路線表</button>
+      <!-- <button
+        v-if="hasReturn"
+        class="stop-tab"
+        :class="{ active: direction === 1 }"
+        @click="changeDirection(1)"
+      >回程</button> -->
+    </div>
+
+    <!-- 站點列表 -->
+    <div class="stop-list-wrap" v-if="routeDetail && routeDetail.stations && routeDetail.stations.length">
+      <div
+        v-for="(stop, idx) in routeDetail.stations"
+        :key="idx"
+        :class="[
+          'stop-row',
+          { current: idx === currentIndex, next: idx === currentIndex + 1 }
+        ]"
+      >
         <div>
-          <div class="route-title">{{ routeData?.name }}</div>
-          <div class="route-line">{{ routeData?.from }} → {{ routeData?.to }}</div>
-          <div class="next">下一班：{{ routeData?.next }}（約 {{ routeData?.eta }} 分）</div>
+          <div class="stop-title">
+            {{ stop.station_name }}
+            <span v-if="idx === currentIndex" class="at-stop-badge">到站中</span>
+            <span v-else-if="idx === currentIndex + 1" class="next-stop-badge">下一站</span>
+          </div>
+          <div class="stop-subtitle" v-if="stop.note">{{ stop.note }}</div>
         </div>
-        <div><button class="btn-outline" @click="openMap">查看地圖</button></div>
-      </section>
-
-      <section class="tabs">
-        <button :class="{active: tab==='A'}" @click="tab='A'">往A</button>
-        <button :class="{active: tab==='B'}" @click="tab='B'">往B</button>
-      </section>
-
-      <section class="rows-wrap" v-if="routeData">
-        <div class="center-line" aria-hidden="true"></div>
-
-        <div class="row" v-for="(stop, idx) in stopsToShow" :key="idx">
-          <div class="cell stop-cell">
-            <div class="stop-card" @click="onStopClick(idx)">
-              <div class="stop-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="11" rx="2" fill="rgba(0,0,0,0.04)"/><circle cx="8.5" cy="18" r="1.6" fill="#111"/><circle cx="15.5" cy="18" r="1.6" fill="#111"/></svg>
-              </div>
-              <div class="stop-name-wrap">
-                <div class="stop-name">{{ stop }}</div>
-                <div v-if="routeData?.stopNotes?.[idx]" class="stop-note">{{ routeData.stopNotes[idx] }}</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="cell center-cell">
-            <div class="circle-wrap">
-              <template v-if="idx === currentIndex">
-                <div class="vehicle-chip">🚍</div>
-              </template>
-              <template v-else>
-                <div class="dot"></div>
-              </template>
-            </div>
-          </div>
-
-          <div class="cell time-cell">
-            <div class="time-pill" :class="statusClass(times[idx])">{{ times[idx] || '--:--' }}</div>
-          </div>
+        <div class="stop-time">
+          <span v-if="stop.interval_minutes">間隔 {{ stop.interval_minutes }} 分</span>
         </div>
-      </section>
-    </main>
+      </div>
+    </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
-const id = String(route.params.id || '')
+const routeDetail = ref<any>(null)
+const direction = ref(0)  // 0: 去程, 1: 回程
+const hasReturn = ref(false)  // 是否有回程
+const currentIndex = ref(0) // 可根據實際需求做當前站計算
 
-const routes = reactive([
-  { id:'A', name:'公車 A', from:'站A', to:'站B', next:'11:20', eta:5,
-    stops:['站A','站X','站Y','站B','站C','站D','站E'], times:['11:20','11:24','11:27','11:30','11:34','11:40','11:45'], stopNotes:['首站','','轉乘','','','','末站'] },
-  { id:'B', name:'公車 B', from:'站C', to:'站D', next:'11:27', eta:12,
-    stops:['站C','站Y','站Z','站D'], times:['11:27','11:34','11:40','11:50'], stopNotes:['','快速班','','末站'] }
-])
-
-const routeData = computed(() => routes.find(r => r.id === id) || routes[0] || null)
-const tab = ref<'A'|'B'>('A')
-const currentIndex = ref(0)
-
-const stopsToShow = computed(() => {
-  if (!routeData.value) return []
-  return tab.value === 'A' ? routeData.value.stops : [...routeData.value.stops].reverse()
-})
-const times = computed(() => {
-  if (!routeData.value) return []
-  return tab.value === 'A' ? routeData.value.times : [...routeData.value.times].reverse()
+const routeTitle = computed(() => {
+  if (!routeDetail.value || !routeDetail.value.stations || routeDetail.value.stations.length === 0) {
+    return '路線詳情'
+  }
+  const first = routeDetail.value.stations[0]?.station_name
+  const last = routeDetail.value.stations[routeDetail.value.stations.length - 1]?.station_name
+  return `${first} - ${last}`
 })
 
-function back(){ router.back() }
-function openMap(){ alert('查看地圖（示範）') }
-function onStopClick(idx:number){ alert(`你點了 ${stopsToShow.value[idx]}`) }
-function statusClass(val?: string){
-  if (!val) return ''
-  const v = String(val).toLowerCase()
-  if (v.includes('進站')) return 'status-arrived'
-  if (v.includes('即將')) return 'status-approach'
-  if (/^\d{1,2}:\d{2}$/.test(v)) return 'status-on'
-  return ''
+
+function goBack() {
+  router.push('/search')
 }
 
-/* demo auto-advance */
-let timer: number | null = null
-onMounted(() => {
-  timer = window.setInterval(() => {
-    currentIndex.value = (currentIndex.value + 1) % Math.max(stopsToShow.value.length, 1)
-  }, 4000)
+function changeDirection(dir: number) {
+  if (direction.value !== dir) {
+    direction.value = dir
+    fetchDetail()
+  }
+}
+
+async function checkHasReturn() {
+  const id = route.params.route
+  const res = await fetch(`/api/bus/detail/${id}?direction=1`)
+  hasReturn.value = false
+  if (res.ok) {
+    const data = await res.json()
+    // 如果 direction=1 有資料就顯示回程按鈕
+    if (data && Array.isArray(data.stations) && data.stations.length > 0) {
+      hasReturn.value = true
+    }
+  }
+}
+
+async function fetchDetail() {
+  // 用 route.params.route
+  const routeKey = route.params.route
+  if (!routeKey) return
+  const res = await fetch(`/api/bus/detail/${routeKey}?direction=${direction.value}`)
+  if (res.ok) {
+    routeDetail.value = await res.json()
+  } else {
+    routeDetail.value = { stations: [] }
+  }
+}
+
+watch(() => route.params.route, () => {
+  fetchDetail()
+  checkHasReturn()
 })
-onUnmounted(() => {
-  if (timer) window.clearInterval(timer)
+watch(direction, fetchDetail)
+onMounted(() => {
+  fetchDetail()
+  checkHasReturn()
 })
 </script>
 
+
 <style scoped>
-.screen{font-family:system-ui, -apple-system, "Noto Sans TC", Arial;min-height:100vh}
-.detail-screen{--bg:#f6f7f8;--accent:#2bb0c5;--card:#fff;--line:#d9534f;--muted:#6b7680;background:var(--bg);color:#111;display:flex;flex-direction:column}
-.topbar{display:flex;align-items:center;padding:12px;background:var(--accent);color:#fff}
-.btn-back{background:transparent;border:none;color:#fff;font-size:18px;padding:6px}
-.title{flex:1;text-align:center;font-weight:700}
-.main{padding:12px;flex:1;display:flex;flex-direction:column;gap:12px;background:transparent}
-.route-card{display:flex;justify-content:space-between;align-items:center;background:var(--card);padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
-.route-title{font-weight:800}
-.route-line{color:var(--muted);margin-top:6px}
-.btn-outline{background:transparent;border:1px solid rgba(0,0,0,0.06);padding:8px 10px;border-radius:999px;color:var(--accent)}
-.tabs{display:flex;gap:8px}
-.tabs button{flex:1;padding:10px;border-radius:20px;border:none;background:transparent;color:var(--muted);font-weight:600}
-.tabs button.active{background:linear-gradient(90deg,rgba(43,176,197,0.12),rgba(43,176,197,0.06));color:var(--accent)}
-.rows-wrap{display:grid;grid-template-columns:170px 64px 1fr;row-gap:18px;position:relative;padding:8px 6px}
-.center-line{grid-column:2;grid-row:1/-1;justify-self:center;align-self:stretch;position:relative;z-index:0}
-.center-line::before{content:'';position:absolute;left:50%;top:0;bottom:0;transform:translateX(-50%);width:6px;border-radius:6px;background:var(--line);box-shadow:0 4px 12px rgba(0,0,0,0.06)}
-.row{grid-column:1/-1;display:grid;grid-template-columns:170px 64px 1fr;align-items:center;gap:8px;z-index:1;min-height:56px}
-.stop-card{display:flex;align-items:center;gap:10px;width:100%;padding:8px;border-radius:10px;background:var(--card);box-shadow:0 10px 24px rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.04);cursor:pointer}
-.stop-cell{display:flex;align-items:center;justify-content:center}
-.stop-icon svg{width:32px;height:32px}
-.stop-name-wrap{display:flex;flex-direction:column;align-items:center}
-.stop-name{font-weight:700}
-.stop-note{font-size:12px;color:var(--muted);margin-top:4px}
-.center-cell{display:flex;align-items:center;justify-content:center}
-.circle-wrap{width:100%;display:flex;justify-content:center;align-items:center}
-.dot{width:12px;height:12px;border-radius:50%;background:#f6bfdc;border:3px solid #f6bfdc}
-.vehicle-chip{display:inline-flex;align-items:center;justify-content:center;min-width:40px;height:28px;padding:0 8px;border-radius:16px;background:linear-gradient(180deg,#ff8aa3,#ff5b7f);color:#fff;font-weight:700;box-shadow:0 10px 24px rgba(0,0,0,0.12)}
-.time-cell{display:flex;justify-content:flex-end}
-.time-pill{padding:8px 14px;border-radius:999px;background:#f0f3f4;color:#111;min-width:72px;text-align:center;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.06)}
-.time-pill.status-on{background:#46b97a;color:#fff}
-.time-pill.status-approach{background:#f5a623;color:#111}
-.time-pill.status-arrived{background:#e74c3c;color:#fff}
-@media(min-width:900px){ .content{max-width:900px;margin:0 auto} .rows-wrap{grid-template-columns:220px 64px 1fr} .row{grid-template-columns:220px 64px 1fr;min-height:64px} }
+.detail-main-bg {
+  background: #f7f3ee;
+  min-height: 100vh;
+  padding: 0;
+}
+.detail-header {
+  position: relative;
+  background: linear-gradient(90deg, #ff9364, #ff784b);
+  color: #fff;
+  border-radius: 0 0 18px 18px;
+  padding: 24px 0 17px 0;
+  box-shadow: 0 3px 14px rgba(255,150,120,0.10);
+  font-weight: bold;
+  text-align: center;
+  letter-spacing: 1.2px;
+  font-size: 22px;
+}
+.back-btn {
+  position: absolute;
+  left: 12px;
+  top: 20px;
+  font-size: 22px;
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.info-bar {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 14px rgba(255,150,120,0.10);
+  margin: 20px auto 18px auto;
+  max-width: 97%;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: space-between;
+  padding: 20px 23px 20px 23px;
+  gap: 18px;
+  min-height: 100px;
+}
+
+.info-text {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+}
+.info-label {
+  color: #e9601e;
+  font-size: 17.5px;
+  font-weight: bold;
+  margin-right: 2px;
+  letter-spacing: 1.5px;
+}
+.info-current {
+  color: #e9601e;
+  font-size: 19px;
+  font-weight: bold;
+}
+.info-next {
+  color: #ff9542;
+  font-size: 18px;
+  font-weight: bold;
+}
+.info-bus {
+  color: #a86b2d;
+  margin-top: 5px;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.detail-map-btn {
+  align-self: flex-start;
+  background: linear-gradient(90deg, #fff8f3 70%, #ffe6d8 120%);
+  color: #e4673c;
+  border: none;
+  border-radius: 11px;
+  font-size: 16px;
+  font-weight: bold;
+  box-shadow: 0 2px 10px rgba(255,170,120,0.09);
+  padding: 9px 24px;
+  cursor: pointer;
+  transition: background 0.18s;
+  margin-top: 6px;
+  min-width: 100px;
+}
+
+.route-switch-wrap {
+  width: 97%;
+  margin: 0 auto 17px auto;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.route-switch {
+  background: #ff9364;
+  color: #fff;
+  font-weight: bold;
+  font-size: 18px;
+  border-radius: 10px;
+  border: 2px solid #ff9364;
+  min-width: 120px;
+  padding: 10px 0;
+  transition: all 0.18s;
+  box-shadow: 0 2px 8px rgba(255,160,90,0.07);
+  cursor: pointer;
+}
+.route-switch:not(.active) {
+  background: #ffe9db;
+  color: #e4673c;
+  border: 2px solid #ff9364;
+}
+.route-switch:active {
+  filter: brightness(0.95);
+}
+
+.stop-list-wrap {
+  margin: 0 auto;
+  max-width: 97%;
+}
+.stop-row {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 1px 10px rgba(255,170,120,0.07);
+  padding: 18px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: box-shadow 0.17s, background 0.14s;
+}
+.stop-row.current {
+  background: #ff725b !important;
+  border-left: 8px solid #ff3a18 !important;
+  color: #fff !important;
+}
+.stop-row.current .stop-title, .stop-row.current .stop-subtitle, .stop-row.current .stop-time {
+  color: #fff !important;
+}
+.stop-row.next {
+  background: #ffe49b !important;
+  border-left: 8px solid #ffd85c !important;
+  color: #bf7600 !important;
+}
+.stop-row.next .stop-title, .stop-row.next .stop-subtitle, .stop-row.next .stop-time {
+  color: #bf7600 !important;
+}
+.stop-row .stop-time {
+  min-width: 44px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: bold;
+  margin-left: 6px;
+}
+.stop-title {
+  font-weight: bold;
+  color: #ff7f50;
+  font-size: 18.5px;
+  margin-bottom: 4px;
+}
+.stop-subtitle {
+  color: #a59b93;
+  font-size: 15px;
+}
+.at-stop-badge {
+  display: inline-block;
+  background: #fff;
+  color: #ff3a18;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: bold;
+  margin-left: 7px;
+  padding: 1px 9px;
+  box-shadow: 0 1px 5px rgba(255,170,120,0.06);
+  vertical-align: middle;
+}
+.stop-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+  margin-top: 10px;
+  border-radius: 14px;
+  overflow: hidden;
+  width: 100%;
+  background: none;
+}
+.stop-tab {
+  flex: 1 1 0;
+  background: #fff3ea;
+  border: none;
+  border-radius: 0;
+  padding: 16px 0;
+  color: #ff9650;
+  font-weight: bold;
+  font-size: 22px;
+  transition: all 0.16s;
+  cursor: pointer;
+  box-shadow: none;
+  border-bottom: 2px solid transparent;
+  letter-spacing: 2.5px;
+}
+.stop-tab.active {
+  background: linear-gradient(90deg, #ff9364 80%, #ffb588);
+  color: #fff;
+  border-radius: 18px;
+  border: 2.2px solid #222;
+  box-shadow: 0 2px 12px rgba(255,150,100,0.08);
+}
+.stop-tab:not(.active) {
+  color: #e88c52;
+  background: #fff3ea;
+}
+
+.next-stop-badge {
+  display: inline-block;
+  background: #ffe49b;
+  color: #bf7600;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: bold;
+  margin-left: 7px;
+  padding: 1px 9px;
+  box-shadow: 0 1px 5px rgba(255,170,120,0.06);
+  vertical-align: middle;
+}
+@media (max-width: 600px) {
+  .detail-main-bg, .info-bar, .stop-list-wrap {
+    max-width: 100%;
+    padding: 0 0;
+  }
+  .info-bar, .stop-list-wrap {
+    margin-left: 3vw;
+    margin-right: 3vw;
+  }
+}
 </style>

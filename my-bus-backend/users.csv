@@ -1,0 +1,2 @@
+id,username,password_hash,role,permissions
+1,admin,$2b$12$Nq9pPr6mYMqsp8.fLjEFmOd7Wa4ZyrIgyXL6BwU1Dl79KzxqTOATK,admin,"[""routes:read"", ""routes:write""]"

@@ -9,6 +9,9 @@
     "preview": "vite preview --host"
   },
   "dependencies": {
+    "leaflet": "^1.9.4",
+    "leaflet-draw": "^1.0.4",
+    "leaflet-routing-machine": "^3.2.12",
     "vue": "^3.5.18",
     "vue-router": "^4.5.1"
   },
