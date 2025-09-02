@@ -16,21 +16,55 @@ function HomeView({ onAction, onNavigateRoutes }) {
   const [allRoutes, setAllRoutes] = useState([])
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [pressedKey, setPressedKey] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState(null)
 
-  // refresh statuses every 15s
+  // Auto-refresh controls
+  const AUTO_REFRESH_MS = 30000 // 30s，避免太頻繁造成滑動時回彈
+  const interactingRef = React.useRef(false)
+  const interactTimer = React.useRef(null)
+
+  // Mark interacting for a short period after scroll/touch to avoid refresh jank
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => (t + 1) % 1_000_000), 15000)
-    return () => clearInterval(id)
+    const markInteract = () => {
+      interactingRef.current = true
+      clearTimeout(interactTimer.current)
+      interactTimer.current = setTimeout(() => (interactingRef.current = false), 900)
+    }
+    const onScroll = () => markInteract()
+    const onTouchStart = () => markInteract()
+    const onTouchEnd = () => markInteract()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchend', onTouchEnd)
+      clearTimeout(interactTimer.current)
+    }
   }, [])
+
+  // Auto refresh interval, paused when user is interacting or tab is hidden
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.hidden) return
+      if (interactingRef.current) return
+      if (searchOpen) return
+      setTick((t) => (t + 1) % 1_000_000)
+    }, AUTO_REFRESH_MS)
+    return () => clearInterval(id)
+  }, [searchOpen])
 
   useEffect(() => {
     let cancelled = false
-    async function load() {
+    const refresh = async ({ hard = false } = {}) => {
       try {
-        setLoading(true)
+        if (hard) setLoading(true)
         setError(null)
-        const routes = await getRoutes()
-        setAllRoutes(routes)
+        const routes = allRoutes.length ? allRoutes : await getRoutes()
+        if (!allRoutes.length) setAllRoutes(routes)
         const pick = routes.slice(0, 3)
         const perRoute = await Promise.all(
           pick.map(async (r) => {
@@ -43,14 +77,11 @@ function HomeView({ onAction, onNavigateRoutes }) {
             return { route: r, stops }
           })
         )
-
         const items = perRoute.flatMap(({ route: r, stops }) => {
           if (!stops || stops.length === 0) return []
-
           const lastEta = stops.reduce((m, s) => Math.max(m, Number(s.etaFromStart) || 0), 0)
           const cycle = Math.max(lastEta + 5, stops.length * 3) || 20
           const nowMin = (Date.now() / 60000) % cycle
-
           const annotate = (eta) => {
             const delta = eta - nowMin
             if (delta <= -1.0) return { label: '已過站', etaText: null, score: 999 }
@@ -58,7 +89,6 @@ function HomeView({ onAction, onNavigateRoutes }) {
             if (delta <= 5.0) return { label: '即將到站', etaText: `${Math.ceil(delta)} 分鐘`, score: delta }
             return { label: '等待中', etaText: `${Math.ceil(delta)} 分鐘`, score: delta + 100 }
           }
-
           const enriched = stops
             .map((s, idx) => {
               const eta = Number(s.etaFromStart ?? (idx * 3))
@@ -74,23 +104,32 @@ function HomeView({ onAction, onNavigateRoutes }) {
               }
             })
             .sort((a, b) => a.score - b.score)
-
           return enriched.slice(0, 1)
         })
-
-        if (!cancelled) setArrivals(items.slice(0, 3))
+        if (!cancelled) {
+          // Only update if changed to avoid flicker
+          const next = items.slice(0, 3)
+          const a = JSON.stringify(next)
+          const b = JSON.stringify(arrivals)
+          if (a !== b) setArrivals(next)
+          setLastUpdated(new Date())
+        }
       } catch (e) {
         if (!cancelled) {
           setError('無法載入即將到站資料')
-          setArrivals([])
           console.warn('Home arrivals load error:', e)
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setRefreshing(false)
+        }
       }
     }
-    load()
-    return () => { cancelled = true }
+    refresh({ hard: true })
+    const unsub = () => { cancelled = true }
+    return unsub
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick])
 
   return (
@@ -156,7 +195,11 @@ function HomeView({ onAction, onNavigateRoutes }) {
       <section className="card">
         <div className="card-title">
           <span>即時到站</span>
-          <button className="link-btn" onClick={() => setTick((t) => t + 1)}>更新</button>
+          <button
+            className="link-btn"
+            onClick={() => { setRefreshing(true); setTick((t) => t + 1) }}
+            disabled={refreshing}
+          >{refreshing ? '更新中…' : '更新'}</button>
         </div>
 
         <div className="arrival-list">
@@ -165,9 +208,13 @@ function HomeView({ onAction, onNavigateRoutes }) {
           {!loading && arrivals.map((a) => (
             <div
               key={a.key}
-              className="arrival-item arrival-item--tight"
+              className={`arrival-item arrival-item--tight ${pressedKey === a.key ? 'is-pressed' : ''}`}
               role="button"
               tabIndex={0}
+              onPointerDown={() => setPressedKey(a.key)}
+              onPointerUp={() => setPressedKey(null)}
+              onPointerCancel={() => setPressedKey(null)}
+              onPointerLeave={() => setPressedKey(null)}
               onClick={() => onAction(`${a.route} ${a.directionLabel} ${a.stop} - ${a.eta}`)}
               onKeyDown={(e) => e.key === 'Enter' && onAction(`${a.route} ${a.directionLabel} ${a.stop} - ${a.eta}`)}
             >
@@ -236,21 +283,23 @@ export default function App() {
   return (
     <div className="page-root">
       <Header />
-      {view === 'home' && <HomeView onAction={handleAction} onNavigateRoutes={() => setView('routes')} />}
-      {view === 'routes' && <RoutesPage />}
-      {view === 'reserve' && (
+      <div className={`view view-${view}`}>
+        {view === 'home' && <HomeView onAction={handleAction} onNavigateRoutes={() => setView('routes')} />}
+        {view === 'routes' && <RoutesPage />}
+        {view === 'reserve' && (
         <ReservePage
           user={user}
           onRequireLogin={() => setView('profile')}
         />
-      )}
-      {view === 'profile' && (
+        )}
+        {view === 'profile' && (
         <ProfilePage
           user={user}
           onLogin={(u) => setUser(u)}
           onLogout={() => setUser(null)}
         />
-      )}
+        )}
+      </div>
       <BottomNav
         onNavClick={handleNav}
         active={

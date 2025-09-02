@@ -53,6 +53,13 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   margin-bottom:88px; /* Bottom nav 空間 */
 }
 
+/* View transitions */
+.view { animation: view-fade-slide .18s ease; }
+@keyframes view-fade-slide {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* Search area */
 .search-section{margin-bottom:12px}
 .search-input{
@@ -172,9 +179,14 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   background: linear-gradient(180deg, rgba(0,51,160,0.03), rgba(0,51,160,0.01));
   border: 1px solid rgba(0,51,160,0.06);
   cursor: pointer;
-  transition: transform .08s ease, box-shadow .08s ease;
+  transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease;
 }
 .arrival-item--tight { min-height: 64px; }
+.arrival-item.is-pressed {
+  transform: translateY(1px) scale(0.995);
+  background: linear-gradient(180deg, rgba(0,51,160,0.06), rgba(0,51,160,0.02));
+  box-shadow: 0 6px 16px rgba(0,51,160,0.08);
+}
 .arrival-item:active,
 .arrival-item:focus {
   transform: translateY(1px);
@@ -223,7 +235,13 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 }
 .route-detail-panel {
   width:100%; max-width:720px; background:#fff; border-radius:12px 12px 0 0; padding:14px; box-shadow: 0 -8px 30px rgba(0,0,0,0.2);
+  animation: slide-up .22s ease;
 }
+@keyframes slide-up { from { transform: translateY(20px); opacity: .98; } to { transform: translateY(0); opacity: 1; } }
+
+/* Tiny spinner icon */
+.spinner { width:14px; height:14px; border:2px solid rgba(0,0,0,0.15); border-top-color: var(--pantone-blue); border-radius:50%; display:inline-block; animation: spin .7s linear infinite; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .panel-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
 .stops-list { display:flex; flex-direction:column; gap:8px; max-height:60vh; overflow:auto; padding-right:6px; }
 .stop-item { display:flex; justify-content:space-between; align-items:center; padding:10px; border-radius:8px; background: #fbfdff; border:1px solid rgba(0,0,0,0.03); }

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>小區域公車路線規劃（WMTS + OSRM）</title>
+
+  <!-- Leaflet（開發期先移除 integrity，避免 SRI 卡住） -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    html,body { height:100%; margin:0; background:#262334 }
+    #map { height:100%; width:100%; }
+    .ui {
+      position:absolute; top:10px; left:10px; z-index:1000;
+      display:flex; gap:8px; flex-wrap:wrap
+    }
+    .ui button {
+      background:#fff; border:0; border-radius:10px; padding:8px 12px;
+      box-shadow:0 2px 10px rgba(0,0,0,.15); cursor:pointer; font-weight:600
+    }
+    .panel {
+      position:absolute; right:10px; top:10px; z-index:1000;
+      background:#fff; padding:10px 12px; border-radius:10px;
+      box-shadow:0 2px 10px rgba(0,0,0,.15); font:14px/1.4 system-ui,sans-serif
+    }
+    .panel b { display:block; margin-bottom:6px }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="ui">
+    <button id="demo">載入示範點並規劃</button>
+    <button id="clear">清除點位/路徑</button>
+    <button id="help">使用說明</button>
+  </div>
+
+  <div class="panel">
+    <b>路線資訊</b>
+    <div>點位數：<span id="pt">0</span></div>
+    <div>總距離：<span id="dist">—</span></div>
+    <div>預估時間：<span id="dur">—</span></div>
+    <div style="margin-top:6px;color:#555">（地圖上點擊新增點位；拖曳點位可重算）</div>
+  </div>
+
+  <script>
+    // 1) 建立地圖 + NLSC WMTS 底圖（GoogleMapsCompatible）
+    const map = L.map("map", { center:[23.99302,121.603219], zoom:14 });
+    const emap = L.tileLayer(
+      "https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      { tileSize:256, attribution:"Leaflet | © NLSC WMTS | © OpenStreetMap" }
+    ).addTo(map);
+    const emap2 = L.tileLayer(
+      "https://wmts.nlsc.gov.tw/wmts/EMAP2/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      { tileSize:256, opacity:.9 }
+    ).addTo(map);
+
+    // 2) 點位 / 標記 / 路徑圖層
+    const wpLayer = L.layerGroup().addTo(map);  // waypoints (draggable markers)
+    const routeLayer = L.layerGroup().addTo(map);
+    let waypoints = []; // [{lat,lng, marker}...]
+
+    // 3) 點擊新增點位
+    map.on("click", (e) => addWaypoint(e.latlng, true));
+
+    function addWaypoint(latlng, reroute=true) {
+      const marker = L.marker(latlng, { draggable:true }).addTo(wpLayer);
+      marker.on("dragend", () => route()); // 拖曳後重算
+      waypoints.push({ ...latlng, marker });
+      document.getElementById("pt").textContent = waypoints.length;
+      if (reroute) route();
+    }
+
+    function clearAll() {
+      waypoints.forEach(w => w.marker.remove());
+      waypoints = [];
+      wpLayer.clearLayers();
+      routeLayer.clearLayers();
+      document.getElementById("pt").textContent = "0";
+      document.getElementById("dist").textContent = "—";
+      document.getElementById("dur").textContent = "—";
+    }
+
+    // 4) 用 OSRM 計算實際道路路徑（driving）
+    async function route() {
+      routeLayer.clearLayers();
+      if (waypoints.length < 2) { return; }
+
+      // OSRM 需要 lon,lat；我們從 Leaflet 的 lat,lng 轉成 lng,lat
+      const coords = waypoints.map(w => `${w.marker.getLatLng().lng},${w.marker.getLatLng().lat}`).join(";");
+
+      const url = `https://router.project-osrm.org/route/v1/driving/${coords}` +
+                  `?overview=full&geometries=geojson&annotations=distance,duration`;
+
+      try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`OSRM 回應 ${r.status}`);
+        const json = await r.json();
+        if (!json.routes || !json.routes[0]) throw new Error("沒有可用路線");
+
+        const rt = json.routes[0];
+        // 畫路線
+        const line = L.geoJSON(rt.geometry, { style:{ weight:6, opacity:0.9, dashArray:"8,10" } }).addTo(routeLayer);
+        map.fitBounds(line.getBounds(), { padding:[40,40] });
+
+        // 顯示距離/時間
+        const distKm = (rt.distance/1000).toFixed(2);
+        const durMin = Math.round(rt.duration/60);
+        document.getElementById("dist").textContent = `${distKm} km`;
+        document.getElementById("dur").textContent  = `${durMin} 分鐘`;
+      } catch (err) {
+        console.error(err);
+        alert("路徑規劃失敗（可能 OSRM Demo 忙碌或網路問題）。");
+      }
+    }
+
+    // 5) 示範點（以你之前給的花蓮座標為例）
+    //    Start: 花蓮轉運站附近 → 中正路 → 國聯五路 → 東大門夜市附近（純示範）
+    document.getElementById("demo").addEventListener("click", () => {
+      clearAll();
+      const demoPts = [
+        [23.993020, 121.603219], // 花蓮轉運站
+        [23.993600, 121.609900], // 中正路一帶
+        [23.997800, 121.615800], // 國聯五路附近
+        [23.973900, 121.613800]  // 東大門夜市附近（示範）
+      ];
+      demoPts.forEach(latlng => addWaypoint({lat:latlng[0], lng:latlng[1]}, false));
+      route();
+    });
+
+    document.getElementById("clear").addEventListener("click", clearAll);
+    document.getElementById("help").addEventListener("click", () => {
+      alert(
+        "使用方式：\n" +
+        "1) 在地圖上點擊新增點位（至少兩個）。\n" +
+        "2) 標記可拖曳，會自動重算路徑。\n" +
+        "3) 右上方面板會顯示距離與預估時間。\n" +
+        "備註：此範例使用 OSRM 公網服務，僅供開發測試。"
+      );
+    });
+  </script>
+</body>
+</html>
