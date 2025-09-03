@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>公車路線查詢（超清楚版）</title>
+
+  <!-- Leaflet（先不加 SRI） -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- 方向箭頭外掛 -->
+  <script src="https://unpkg.com/leaflet-polylinedecorator@1.7.0/dist/leaflet.polylineDecorator.min.js"></script>
+
+  <style>
+    html,body{height:100%;margin:0;background:#16161a}
+    #map{height:100%;width:100%}
+
+    /* 控制板 */
+    .panel{
+      position:absolute;left:12px;top:12px;z-index:1000;background:#fff;
+      width:360px;max-width:92vw;border-radius:14px;padding:12px 12px 10px;
+      box-shadow:0 10px 28px rgba(0,0,0,.28);font:14px/1.5 system-ui,Segoe UI,Arial
+    }
+    .panel h3{margin:0 0 8px;font-size:16px}
+    .panel textarea{width:100%;height:110px;resize:vertical;border:1px solid #e6e6e6;border-radius:10px;padding:8px}
+    .panel input,.panel select{width:100%;border:1px solid #e6e6e6;border-radius:10px;padding:8px}
+    .row{display:flex;gap:8px;margin-top:8px}
+    .row>*{flex:1}
+    .btn{
+      background:#2563eb;color:#fff;border:0;border-radius:10px;padding:9px 12px;cursor:pointer;font-weight:700
+    }
+    .btn.alt{background:#0ea5a5}
+    .btn.warn{background:#c2410c}
+    .hint{color:#666;margin-top:6px}
+
+    /* 右上資訊卡 */
+    .stats{
+      position:absolute;right:12px;top:12px;z-index:1000;background:#fff;
+      min-width:240px;border-radius:14px;padding:12px;box-shadow:0 10px 28px rgba(0,0,0,.28)
+    }
+    .stats b{display:block;margin-bottom:6px}
+    .leg{display:flex;justify-content:space-between;border-top:1px dashed #e5e7eb;padding:4px 0}
+
+    /* 站點樣式（編號圓點） */
+    .stop-badge{
+      background:#fff;color:#10b981;border:2px solid #10b981;
+      font-weight:800;min-width:22px;height:22px;border-radius:14px;line-height:18px;
+      display:inline-flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.15)
+    }
+    .stop-start{color:#2563eb;border-color:#2563eb}
+    .stop-end{color:#d97706;border-color:#d97706}
+
+    /* 公車標記：脈衝圈 + 車輛貼紙 + 文字徽章 */
+    .bus-wrap{position:relative;transform:translate(-50%,-50%);pointer-events:none}
+    .bus-pulse{
+      position:absolute;left:50%;top:50%;width:66px;height:66px;border-radius:50%;
+      transform:translate(-50%,-50%);background:rgba(37,99,235,.15);box-shadow:0 0 0 4px rgba(37,99,235,.12);
+      animation:pulse 1.6s ease-out infinite
+    }
+    .bus-dot{
+      position:absolute;left:50%;top:50%;width:18px;height:18px;border-radius:50%;
+      transform:translate(-50%,-50%);background:#2563eb;border:2px solid #fff;box-shadow:0 4px 14px rgba(0,0,0,.35)
+    }
+    .bus-emoji{
+      position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+      font-size:20px;text-shadow:0 2px 8px rgba(0,0,0,.35)
+    }
+    .bus-badge{
+      position:absolute;left:50%;top:-8px;transform:translate(-50%,-100%);
+      background:#111827;color:#fff;border-radius:999px;padding:3px 8px;font-weight:800;font-size:12px;
+      box-shadow:0 6px 16px rgba(0,0,0,.35)
+    }
+    .bus-acc{
+      position:absolute;left:50%;top:50%;width:110px;height:110px;border-radius:50%;
+      transform:translate(-50%,-50%);border:2px dashed rgba(37,99,235,.35)
+    }
+    @keyframes pulse{0%{transform:translate(-50%,-50%) scale(.6);opacity:.9}70%{opacity:.25}100%{transform:translate(-50%,-50%) scale(1.15);opacity:0}}
+
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="panel">
+    <h3>輸入站點（lat,lon 一行一筆）</h3>
+    <textarea id="stops" placeholder="例如：
+23.993020,121.603219
+23.990200,121.606900
+23.989100,121.612800
+23.985400,121.615900"></textarea>
+    <div class="row">
+      <input id="bus" placeholder="公車位置 lat,lon（可空：不顯示）">
+    </div>
+    <div class="row">
+      <select id="theme">
+        <option value="nav">高對比・導航藍</option>
+        <option value="green">高對比・運輸綠</option>
+        <option value="night">夜間黃黑</option>
+        <option value="dashed">虛線規劃</option>
+      </select>
+      <button class="btn" id="plan">規劃路線</button>
+    </div>
+    <div class="row">
+      <button class="btn alt" id="follow">跟隨公車</button>
+      <button class="btn warn" id="clear">清空</button>
+    </div>
+    <div class="hint">提示：可在地圖點一下新增站點；站點可拖曳後自動重算。</div>
+  </div>
+
+  <div class="stats">
+    <b>路線資訊</b>
+    <div>站點數：<span id="pt">0</span></div>
+    <div>總距離：<span id="dist">—</span></div>
+    <div>預估時間：<span id="dur">—</span></div>
+    <div id="legs"></div>
+  </div>
+
+  <script>
+    // 1) 地圖 + NLSC WMTS
+    const map = L.map("map", { center:[23.99302,121.603219], zoom:14 });
+    L.tileLayer("https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      { tileSize:256, attribution:"Leaflet | © NLSC WMTS | © OpenStreetMap" }).addTo(map);
+    L.tileLayer("https://wmts.nlsc.gov.tw/wmts/EMAP2/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      { tileSize:256, opacity:.9 }).addTo(map);
+
+    // 2) 圖層/狀態
+    const wpLayer = L.layerGroup().addTo(map);     // 站點
+    const routeLayer = L.layerGroup().addTo(map);  // 路線（雙層+箭頭）
+    const busLayer = L.layerGroup().addTo(map);    // 公車
+    let waypoints = []; // [{marker}]
+    let busMarker = null, busCircle = null;
+    let currentGeoJSON = null;
+    let followBus = false;
+
+    // 3) 站點處理
+    function parseLatLngList(text){
+      const res=[]; text.split(/\n+/).map(s=>s.trim()).filter(Boolean).forEach(l=>{
+        const m=l.match(/(-?\d+(\.\d+)?)[,\s]+(-?\d+(\.\d+)?)/);
+        if(!m) return; const lat=+m[1], lng=+m[3];
+        if(isFinite(lat)&&isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180) res.push([lat,lng]);
+      }); return res;
+    }
+    function stringifyStops(arr){ return arr.map(([a,b])=>`${a.toFixed(6)},${b.toFixed(6)}`).join("\n"); }
+    function refreshStopsText(){
+      const arr = waypoints.map(w=>[w.marker.getLatLng().lat,w.marker.getLatLng().lng]);
+      document.getElementById("stops").value = stringifyStops(arr);
+      document.getElementById("pt").textContent = String(arr.length);
+    }
+    function stopIcon(label, cls=""){
+      return L.divIcon({className:"", html:`<div class="stop-badge ${cls}">${label}</div>`, iconSize:[24,24], iconAnchor:[12,12]});
+    }
+    map.on("click", e=>{
+      const idx=waypoints.length, cls= idx===0?"stop-start":"";
+      const mk=L.marker(e.latlng,{draggable:true,icon:stopIcon(idx===0?"S":idx+1,cls)}).addTo(wpLayer);
+      mk.on("dragend", ()=>{ refreshStopsText(); plan(); });
+      waypoints.push({marker:mk}); refreshStopsText(); plan();
+    });
+
+    function setStopsFromText(){
+      const pts = parseLatLngList(document.getElementById("stops").value);
+      wpLayer.clearLayers(); waypoints=[];
+      pts.forEach((p,i)=>{
+        const cls = i===0?"stop-start": (i===pts.length-1?"stop-end":"");
+        const mk=L.marker(p,{draggable:true,icon:stopIcon(i===0?"S":i+1,cls)}).addTo(wpLayer);
+        mk.on("dragend", ()=>{ refreshStopsText(); plan(); });
+        waypoints.push({marker:mk});
+      });
+      document.getElementById("pt").textContent = String(pts.length);
+    }
+
+    // 4) 公車標記（超顯眼）
+    function setBus(lat,lng){
+      busLayer.clearLayers();
+      if(!isFinite(lat)||!isFinite(lng)) return (busMarker=null);
+
+      const html = `
+        <div class="bus-wrap">
+          <div class="bus-pulse"></div>
+          <div class="bus-acc"></div>
+          <div class="bus-dot"></div>
+          <div class="bus-emoji">🚌</div>
+          <div class="bus-badge">BUS</div>
+        </div>`;
+      busMarker = L.marker([lat,lng], { icon: L.divIcon({className:"", html, iconSize:[1,1]}) }).addTo(busLayer);
+
+      // 顯示公車 50m 誤差圈（可調）
+      busCircle = L.circle([lat,lng], {radius:50, color:"#2563eb", weight:1, fillColor:"#2563eb", fillOpacity:.08}).addTo(busLayer);
+
+      if (followBus) map.setView([lat,lng], Math.max(map.getZoom(), 16), {animate:true});
+    }
+
+    // 5) 畫高對比路線（外框 + 主線 + 箭頭）
+    function drawRoute(geojson, theme){
+      routeLayer.clearLayers();
+
+      const themes = {
+        nav:   {casing:"#ffffff", stroke:"#2563eb"},
+        green: {casing:"#ffffff", stroke:"#10b981"},
+        night: {casing:"#0b0b10", stroke:"#ffd166"},
+        dashed:{casing:"#ffffff", stroke:"#6366f1", dashArray:"8 8"}
+      };
+      const t = themes[theme] || themes.nav;
+
+      const casing = L.geoJSON(geojson, { style:{ color:t.casing, weight:12, opacity:1, lineCap:"round", lineJoin:"round" }}).addTo(routeLayer);
+      const stroke = L.geoJSON(geojson, { style:{ color:t.stroke, weight:7, opacity:.98, lineCap:"round", lineJoin:"round", dashArray:t.dashArray }}).addTo(routeLayer);
+
+      // 箭頭（有外掛才畫）
+      const ok = !!(L&&L.polylineDecorator&&L.Symbol&&L.Symbol.arrowHead);
+      const poly = stroke.getLayers()[0];
+      if (ok && poly){
+        L.polylineDecorator(poly, {
+          patterns:[{
+            offset:0, repeat:"48px",
+            symbol:L.Symbol.arrowHead({pixelSize:11, pathOptions:{color:t.stroke, weight:6, opacity:0.95}})
+          }]
+        }).addTo(routeLayer);
+      }
+      return stroke;
+    }
+
+    // 6) 規劃路線（OSRM）
+    async function plan(){
+      const stops = parseLatLngList(document.getElementById("stops").value);
+      if(stops.length<2){ routeLayer.clearLayers(); return; }
+
+      // 公車位置
+      const busStr=document.getElementById("bus").value.trim();
+      let busLL=null; if(busStr){ const m=busStr.match(/(-?\d+(\.\d+)?)[,\s]+(-?\d+(\.\d+)?)/); if(m){ busLL=[+m[1],+m[3]]; } }
+      setBus(...(busLL||[]));
+
+      // all：公車（若有） + 站點
+      const all = []; if(busLL) all.push(busLL); all.push(...stops);
+      const coords = all.map(([lat,lng])=>`${lng},${lat}`).join(";");
+      const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`;
+
+      try{
+        const r = await fetch(url); if(!r.ok) throw new Error(r.status);
+        const j = await r.json(); if(!(j.routes && j.routes[0])) throw new Error("no route");
+        const rt = j.routes[0]; currentGeoJSON = rt.geometry;
+
+        const stroke = drawRoute(currentGeoJSON, document.getElementById("theme").value);
+        map.fitBounds(stroke.getBounds(), {padding:[40,40]});
+
+        // 統計
+        document.getElementById("dist").textContent = (rt.distance/1000).toFixed(2)+" km";
+        document.getElementById("dur").textContent  = Math.round(rt.duration/60)+" 分鐘";
+
+        // 各段
+        const legs = rt.legs || []; const box=document.getElementById("legs"); box.innerHTML="<b>各段明細</b>";
+        legs.forEach((leg,i)=>{
+          const div=document.createElement("div");
+          div.className="leg";
+          div.innerHTML=`<span>${i===0&&busLL?"Bus → ":""}站 ${i+1}</span><span>${Math.round(leg.duration/60)} 分 / ${(leg.distance/1000).toFixed(2)} km</span>`;
+          box.appendChild(div);
+        });
+      }catch(e){
+        console.error(e); alert("規劃失敗（OSRM Demo 可能忙碌）。");
+      }
+    }
+
+    // 7) 事件
+    document.getElementById("plan").addEventListener("click", ()=>{ setStopsFromText(); plan(); });
+    document.getElementById("clear").addEventListener("click", ()=>{
+      wpLayer.clearLayers(); routeLayer.clearLayers(); busLayer.clearLayers();
+      waypoints=[]; currentGeoJSON=null; busMarker=null; document.getElementById("stops").value=""; document.getElementById("bus").value="";
+      document.getElementById("pt").textContent="0"; document.getElementById("dist").textContent="—"; document.getElementById("dur").textContent="—"; document.getElementById("legs").innerHTML="";
+    });
+    document.getElementById("follow").addEventListener("click", ()=>{
+      followBus = !followBus;
+      document.getElementById("follow").textContent = followBus ? "停止跟隨" : "跟隨公車";
+      if(followBus && busMarker){ map.setView(busMarker.getLatLng(), Math.max(map.getZoom(), 16), {animate:true}); }
+    });
+    document.getElementById("theme").addEventListener("change", ()=>{ if(currentGeoJSON) plan(); });
+
+    // 初值
+    document.getElementById("pt").textContent="0";
+  </script>
+</body>
+</html>

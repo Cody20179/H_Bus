@@ -3,143 +3,169 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>小區域公車路線規劃（WMTS + OSRM）</title>
+  <title>路線 + 公車（第二站）</title>
 
-  <!-- Leaflet（開發期先移除 integrity，避免 SRI 卡住） -->
-  <link rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Leaflet（無 SRI，避免你的環境出現 integrity 錯誤） -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
+  <!-- 箭頭外掛（可有可無；若抓不到就只畫主線） -->
+  <script src="https://unpkg.com/leaflet-polylinedecorator@1.7.0/dist/leaflet.polylineDecorator.min.js"></script>
+
   <style>
-    html,body { height:100%; margin:0; background:#262334 }
-    #map { height:100%; width:100%; }
-    .ui {
-      position:absolute; top:10px; left:10px; z-index:1000;
-      display:flex; gap:8px; flex-wrap:wrap
+    html,body{height:100%;margin:0;background:#0b0f14}
+    #map{height:100%;width:100%}
+
+    /* 公車標記（脈衝 + 點 + 貼紙） */
+    .bus-wrap{position:relative;transform:translate(-50%,-50%);pointer-events:none}
+    .bus-pulse{
+      position:absolute;left:50%;top:50%;width:66px;height:66px;border-radius:50%;
+      transform:translate(-50%,-50%);background:rgba(37,99,235,.15);box-shadow:0 0 0 4px rgba(37,99,235,.12);
+      animation:pulse 1.6s ease-out infinite
     }
-    .ui button {
-      background:#fff; border:0; border-radius:10px; padding:8px 12px;
-      box-shadow:0 2px 10px rgba(0,0,0,.15); cursor:pointer; font-weight:600
+    .bus-dot{
+      position:absolute;left:50%;top:50%;width:18px;height:18px;border-radius:50%;
+      transform:translate(-50%,-50%);background:#2563eb;border:2px solid #fff;box-shadow:0 4px 14px rgba(0,0,0,.35)
     }
-    .panel {
-      position:absolute; right:10px; top:10px; z-index:1000;
-      background:#fff; padding:10px 12px; border-radius:10px;
-      box-shadow:0 2px 10px rgba(0,0,0,.15); font:14px/1.4 system-ui,sans-serif
+    .bus-emoji{
+      position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+      font-size:20px;text-shadow:0 2px 8px rgba(0,0,0,.35)
     }
-    .panel b { display:block; margin-bottom:6px }
+    .bus-badge{
+      position:absolute;left:50%;top:-8px;transform:translate(-50%,-100%);
+      background:#111827;color:#fff;border-radius:999px;padding:3px 8px;font-weight:800;font-size:12px;
+      box-shadow:0 6px 16px rgba(0,0,0,.35)
+    }
+    @keyframes pulse{0%{transform:translate(-50%,-50%) scale(.6);opacity:.9}70%{opacity:.25}100%{transform:translate(-50%,-50%) scale(1.15);opacity:0}}
+
+    /* 站點徽章（S/1/2/.../終點） */
+    .stop-badge{
+      background:#fff;color:#111;border:2px solid #2563eb;
+      font-weight:800;min-width:22px;height:22px;border-radius:14px;line-height:18px;
+      display:inline-flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.15)
+    }
+    .stop-start{color:#2563eb;border-color:#2563eb}
+    .stop-end{color:#d97706;border-color:#d97706}
   </style>
 </head>
 <body>
   <div id="map"></div>
 
-  <div class="ui">
-    <button id="demo">載入示範點並規劃</button>
-    <button id="clear">清除點位/路徑</button>
-    <button id="help">使用說明</button>
-  </div>
-
-  <div class="panel">
-    <b>路線資訊</b>
-    <div>點位數：<span id="pt">0</span></div>
-    <div>總距離：<span id="dist">—</span></div>
-    <div>預估時間：<span id="dur">—</span></div>
-    <div style="margin-top:6px;color:#555">（地圖上點擊新增點位；拖曳點位可重算）</div>
-  </div>
-
   <script>
-    // 1) 建立地圖 + NLSC WMTS 底圖（GoogleMapsCompatible）
+    // ===== 1) 初始化地圖（NLSC WMTS 底圖） =====
     const map = L.map("map", { center:[23.99302,121.603219], zoom:14 });
-    const emap = L.tileLayer(
-      "https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}",
-      { tileSize:256, attribution:"Leaflet | © NLSC WMTS | © OpenStreetMap" }
-    ).addTo(map);
-    const emap2 = L.tileLayer(
-      "https://wmts.nlsc.gov.tw/wmts/EMAP2/default/GoogleMapsCompatible/{z}/{y}/{x}",
-      { tileSize:256, opacity:.9 }
-    ).addTo(map);
+    L.tileLayer("https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      { tileSize:256, attribution:"Leaflet | © NLSC WMTS | © OpenStreetMap" }).addTo(map);
+    L.tileLayer("https://wmts.nlsc.gov.tw/wmts/EMAP2/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      { tileSize:256, opacity:.9 }).addTo(map);
 
-    // 2) 點位 / 標記 / 路徑圖層
-    const wpLayer = L.layerGroup().addTo(map);  // waypoints (draggable markers)
+    // 顏色主題（導航藍）
+    const theme = { casing:"#ffffff", stroke:"#2563eb" };
+
+    const stopsLayer = L.layerGroup().addTo(map);
     const routeLayer = L.layerGroup().addTo(map);
-    let waypoints = []; // [{lat,lng, marker}...]
+    const busLayer   = L.layerGroup().addTo(map);
 
-    // 3) 點擊新增點位
-    map.on("click", (e) => addWaypoint(e.latlng, true));
+    const stopIcon = (label, cls="") => L.divIcon({className:"", html:`<div class="stop-badge ${cls}">${label}</div>`, iconSize:[24,24], iconAnchor:[12,12]});
+    const makeBusIcon = () => L.divIcon({className:"", html:`
+      <div class="bus-wrap">
+        <div class="bus-pulse"></div>
+        <div class="bus-dot"></div>
+        <div class="bus-emoji">🚌</div>
+        <div class="bus-badge">BUS</div>
+      </div>`, iconSize:[1,1]});
 
-    function addWaypoint(latlng, reroute=true) {
-      const marker = L.marker(latlng, { draggable:true }).addTo(wpLayer);
-      marker.on("dragend", () => route()); // 拖曳後重算
-      waypoints.push({ ...latlng, marker });
-      document.getElementById("pt").textContent = waypoints.length;
-      if (reroute) route();
+    function drawRoute(geojson){
+      routeLayer.clearLayers();
+      const casing = L.geoJSON(geojson, { style:{ color:theme.casing, weight:12, opacity:1, lineCap:"round", lineJoin:"round" }}).addTo(routeLayer);
+      const stroke = L.geoJSON(geojson, { style:{ color:theme.stroke, weight:7, opacity:.98, lineCap:"round", lineJoin:"round" }}).addTo(routeLayer);
+
+      // 箭頭（外掛存在時才畫）
+      const ok = !!(L&&L.polylineDecorator&&L.Symbol&&L.Symbol.arrowHead);
+      const poly = stroke.getLayers()[0];
+      if (ok && poly){
+        L.polylineDecorator(poly, { patterns:[{
+          offset:0, repeat:"48px",
+          symbol:L.Symbol.arrowHead({pixelSize:11, pathOptions:{color:theme.stroke, weight:6, opacity:0.95}})
+        }]}).addTo(routeLayer);
+      }
+      return stroke;
     }
 
-    function clearAll() {
-      waypoints.forEach(w => w.marker.remove());
-      waypoints = [];
-      wpLayer.clearLayers();
-      routeLayer.clearLayers();
-      document.getElementById("pt").textContent = "0";
-      document.getElementById("dist").textContent = "—";
-      document.getElementById("dur").textContent = "—";
-    }
+    async function main(){
+      // ===== 2) 取 API 站點 =====
+      const payload = { route_id: 1, direction: "去程" }; // 依你的需求替換
+      const resp = await fetch("http://127.0.0.1:8500/Route_Stations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!resp.ok) throw new Error("API error: " + resp.status);
+      const data = await resp.json();
+      if (!Array.isArray(data) || data.length < 2) throw new Error("站點不足");
 
-    // 4) 用 OSRM 計算實際道路路徑（driving）
-    async function route() {
-      routeLayer.clearLayers();
-      if (waypoints.length < 2) { return; }
+      // 站點 → LatLng 陣列（依 stop_order 排序）
+      data.sort((a,b)=> (a.stop_order||0) - (b.stop_order||0));
 
-      // OSRM 需要 lon,lat；我們從 Leaflet 的 lat,lng 轉成 lng,lat
-      const coords = waypoints.map(w => `${w.marker.getLatLng().lng},${w.marker.getLatLng().lat}`).join(";");
+      // 注意：若兩個站點座標相同（例如 第4站與第8站同座標），
+      // 預設標記會完全重疊，看起來像少了一站。
+      // 這裡對重疊點加上極小位移（約 4m 的放射狀位移），避免彼此遮蓋。
+      const seen = new Map(); // key: lat,lng -> count
+      const offsetLatLng = ([lat,lng], meters=4, angleDeg=0) => {
+        const R=6378137;
+        const dLat = (meters*Math.cos(angleDeg*Math.PI/180))/R;
+        const dLng = (meters*Math.sin(angleDeg*Math.PI/180))/(R*Math.cos(lat*Math.PI/180));
+        return [lat + dLat*180/Math.PI, lng + dLng*180/Math.PI];
+      }
 
-      const url = `https://router.project-osrm.org/route/v1/driving/${coords}` +
-                  `?overview=full&geometries=geojson&annotations=distance,duration`;
+      const latlngs = data.map((s) => {
+        const lat = Number(s.latitude), lng = Number(s.longitude);
+        const key = lat.toFixed(6)+","+lng.toFixed(6);
+        const dupIdx = (seen.get(key) || 0);
+        seen.set(key, dupIdx+1);
+        // 放大偏移距離與角度步進，確保完全分離
+        return dupIdx===0 ? [lat,lng] : offsetLatLng([lat,lng], dupIdx*14, dupIdx*45);
+      });
+
+      // 畫站點標記（用 stop_order 當編號）
+      stopsLayer.clearLayers();
+      data.forEach((s, i) => {
+        const cls = i===0 ? "stop-start" : (i===data.length-1 ? "stop-end" : "");
+        const label = i===0 ? "S" : (s.stop_order || i+1);
+        L.marker(latlngs[i], { icon: stopIcon(label, cls) })
+         .bindTooltip(`${s.stop_name}`, {permanent:false, direction:"top"})
+         .addTo(stopsLayer);
+      });
+
+      for (const [k,c] of seen) { if (c>1) console.log('發現重疊座標，已偏移避免遮蓋：', k, '次數', c) }
+
+      // ===== 3) 公車放在「第二站」 =====
+      const second = data[1];
+      busLayer.clearLayers();
+      L.marker([second.latitude, second.longitude], { icon: makeBusIcon() }).addTo(busLayer);
+
+      // ===== 4) 用 OSRM 將所有站點「貼道路」成一條導航風格路線 =====
+      // 把站點順序串成 coords
+      const coords = latlngs.map(([lat,lng]) => `${lng},${lat}`).join(";");
+      const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false&annotations=distance,duration`;
 
       try {
-        const r = await fetch(url);
-        if (!r.ok) throw new Error(`OSRM 回應 ${r.status}`);
-        const json = await r.json();
-        if (!json.routes || !json.routes[0]) throw new Error("沒有可用路線");
-
-        const rt = json.routes[0];
-        // 畫路線
-        const line = L.geoJSON(rt.geometry, { style:{ weight:6, opacity:0.9, dashArray:"8,10" } }).addTo(routeLayer);
+        const r = await fetch(url); if(!r.ok) throw new Error(r.status);
+        const j = await r.json(); if(!(j.routes && j.routes[0])) throw new Error("no route");
+        const main = j.routes[0];
+        const stroke = drawRoute(main.geometry);
+        map.fitBounds(stroke.getBounds(), { padding:[40,40] });
+      } catch(err){
+        console.warn("OSRM 規劃失敗，退回直線 Polyline。", err);
+        // 若 OSRM demo 太忙，退回簡單線段
+        const line = L.polyline(latlngs, { color: theme.stroke, weight: 6 }).addTo(routeLayer);
         map.fitBounds(line.getBounds(), { padding:[40,40] });
-
-        // 顯示距離/時間
-        const distKm = (rt.distance/1000).toFixed(2);
-        const durMin = Math.round(rt.duration/60);
-        document.getElementById("dist").textContent = `${distKm} km`;
-        document.getElementById("dur").textContent  = `${durMin} 分鐘`;
-      } catch (err) {
-        console.error(err);
-        alert("路徑規劃失敗（可能 OSRM Demo 忙碌或網路問題）。");
       }
     }
 
-    // 5) 示範點（以你之前給的花蓮座標為例）
-    //    Start: 花蓮轉運站附近 → 中正路 → 國聯五路 → 東大門夜市附近（純示範）
-    document.getElementById("demo").addEventListener("click", () => {
-      clearAll();
-      const demoPts = [
-        [23.993020, 121.603219], // 花蓮轉運站
-        [23.993600, 121.609900], // 中正路一帶
-        [23.997800, 121.615800], // 國聯五路附近
-        [23.973900, 121.613800]  // 東大門夜市附近（示範）
-      ];
-      demoPts.forEach(latlng => addWaypoint({lat:latlng[0], lng:latlng[1]}, false));
-      route();
-    });
-
-    document.getElementById("clear").addEventListener("click", clearAll);
-    document.getElementById("help").addEventListener("click", () => {
-      alert(
-        "使用方式：\n" +
-        "1) 在地圖上點擊新增點位（至少兩個）。\n" +
-        "2) 標記可拖曳，會自動重算路徑。\n" +
-        "3) 右上方面板會顯示距離與預估時間。\n" +
-        "備註：此範例使用 OSRM 公網服務，僅供開發測試。"
-      );
+    main().catch(err=>{
+      console.error(err);
+      alert("載入失敗：" + err.message + "\\n\\n注意：若是本地檔案直開，請確保 API 有開放 CORS，或改用本機伺服器啟動此頁。");
     });
   </script>
 </body>

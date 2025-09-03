@@ -6,7 +6,7 @@ Infor = {
     "user": "root",
     "port": 7000,
     "password": "dh9j2(HU#s9h",
-    "database": "5Glabs",
+    "database": "bus_system",
     "table": "IOT_DPM_C530E"
 }
 

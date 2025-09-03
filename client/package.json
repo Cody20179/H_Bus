@@ -11,6 +11,8 @@
     "convert:stations": "node scripts/convert-stations.mjs src/data/Station.csv src/data/stations.js"
   },
   "dependencies": {
+    "leaflet": "^1.9.4",
+    "leaflet-polylinedecorator": "^1.6.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

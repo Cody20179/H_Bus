@@ -57,6 +57,8 @@ function HomeView({ onAction, onNavigateRoutes }) {
     return () => clearInterval(id)
   }, [searchOpen])
 
+  // Removed planner navigation hooks
+
   useEffect(() => {
     let cancelled = false
     const refresh = async ({ hard = false } = {}) => {
@@ -220,10 +222,10 @@ function HomeView({ onAction, onNavigateRoutes }) {
             >
               <div className="arrival-left arrival-left--nowrap">
                 <div className="route-line">
-                  <div className="route-name ellipsis">{a.route}</div>
+                  <div className="route-name route-name--wrap">{a.route}</div>
                   <div className="direction">{a.directionLabel}</div>
                 </div>
-                <div className="arrival-stop muted ellipsis">{a.stop}</div>
+                <div className="arrival-stop muted">{a.stop}</div>
               </div>
               <div className="arrival-right">
                 <div className="eta eta--right">{a.status} {a.eta ? `• ${a.eta}` : ''}</div>
@@ -279,6 +281,8 @@ export default function App() {
   const handleAction = (name) => {
     console.log(`${name} 被按下`)
   }
+
+  // Remove planner navigation hooks (no planner page)
 
   return (
     <div className="page-root">

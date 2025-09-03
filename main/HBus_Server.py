@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, Literal, List
 from datetime import datetime   
@@ -7,6 +8,22 @@ import pandas as pd
 import uvicorn
 
 app = FastAPI(title="花蓮小巴會員管理系統")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://192.168.0.126:5173",
+        "null",                     # ← 允許從 file:// 開啟的頁面（origin 會是字串 "null"）
+        "*",                        # 若你不帶 cookie/認證，可直接用萬用字元
+    ],
+    allow_credentials=False,        # 若未使用 cookie 或 Authorization，可設 False
+    allow_methods=["*"],            # 讓預檢 OPTIONS 能過
+    allow_headers=["*"],
+)
 
 class Route(BaseModel):
     route_id: int
@@ -129,6 +146,9 @@ def get_route_stations(q: RouteStationsQuery):
     # （可選）逐筆建模，能更早在後端發現資料異常
     data: List[StationOut] = [StationOut(**r) for r in records]
     return data
+
+
+
 
 if __name__ == "__main__":
     uvicorn.run("HBus_Server:app", host="0.0.0.0", port=8500, reload=True)
