@@ -5,6 +5,7 @@ import BottomNav from './components/BottomNav'
 import RoutesPage from './pages/Routes'
 import ReservePage from './pages/Reserve'
 import ProfilePage from './pages/Profile'
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { getRoutes, getRouteStops } from './services/api'
 // Home view is kept here to avoid missing-file issues.
 // If you already have src/pages/HomeView.jsx you can replace this with an import.
@@ -267,52 +268,62 @@ function HomeView({ onAction, onNavigateRoutes }) {
 }
 
 export default function App() {
-  const [view, setView] = useState('home') // 'home' | 'routes' | 'reserve' | 'profile'
   const [user, setUser] = useState(null)
-
-  const handleNav = (name) => {
-    if (name === '路線') setView('routes')
-    else if (name === '首頁') setView('home')
-    else if (name === '預約') setView('reserve')
-    else if (name === '個人') setView('profile')
-    else console.log(`${name} 被按下（尚未實作）`)
-  }
+  const navigate = useNavigate()
+  const location = useLocation()
 
   const handleAction = (name) => {
     console.log(`${name} 被按下`)
   }
 
-  // Remove planner navigation hooks (no planner page)
+  const navMap = {
+    '首頁': '/',
+    '路線': '/routes',
+    '預約': '/reserve',
+    '個人': '/profile',
+  }
+  const handleNav = (name) => {
+    const to = navMap[name]
+    if (to) navigate(to)
+    else console.log(`${name} 被按下（尚未實作）`)
+  }
+  const activeLabel = (() => {
+    if (location.pathname.startsWith('/routes')) return '路線'
+    if (location.pathname.startsWith('/reserve')) return '預約'
+    if (location.pathname.startsWith('/profile')) return '個人'
+    return '首頁'
+  })()
+
+  // Persist user across sessions
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('hb_user')
+      if (raw) setUser(JSON.parse(raw))
+    } catch {}
+  }, [])
+
+  const handleLogin = (u) => {
+    setUser(u)
+    try { localStorage.setItem('hb_user', JSON.stringify(u)) } catch {}
+  }
+  const handleLogout = () => {
+    setUser(null)
+    try { localStorage.removeItem('hb_user') } catch {}
+  }
 
   return (
     <div className="page-root">
       <Header />
-      <div className={`view view-${view}`}>
-        {view === 'home' && <HomeView onAction={handleAction} onNavigateRoutes={() => setView('routes')} />}
-        {view === 'routes' && <RoutesPage />}
-        {view === 'reserve' && (
-        <ReservePage
-          user={user}
-          onRequireLogin={() => setView('profile')}
-        />
-        )}
-        {view === 'profile' && (
-        <ProfilePage
-          user={user}
-          onLogin={(u) => setUser(u)}
-          onLogout={() => setUser(null)}
-        />
-        )}
+      <div className="view">
+        <Routes>
+          <Route path="/" element={<HomeView onAction={handleAction} onNavigateRoutes={() => navigate('/routes')} />} />
+          <Route path="/routes" element={<RoutesPage />} />
+          <Route path="/reserve" element={<ReservePage user={user} onRequireLogin={() => navigate('/profile?from=reserve')} />} />
+          <Route path="/profile" element={<ProfilePage user={user} onLogin={handleLogin} onLogout={handleLogout} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </div>
-      <BottomNav
-        onNavClick={handleNav}
-        active={
-          view === 'home' ? '首頁' :
-          view === 'routes' ? '路線' :
-          view === 'reserve' ? '預約' :
-          view === 'profile' ? '個人' : undefined
-        }
-      />
+      <BottomNav onNavClick={handleNav} active={activeLabel} />
     </div>
   )
 }
