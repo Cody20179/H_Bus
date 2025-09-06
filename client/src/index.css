@@ -50,8 +50,8 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   width:100%;
   max-width:var(--container-w);
   padding:16px;
-  margin-top:12px;
-  margin-bottom:88px; /* Bottom nav 空間 */
+  /* 置中：桌機時避免全部靠左 */
+  margin:12px auto 88px; /* 上 | 左右 | 下（Bottom nav 空間） */
 }
 
 /* View transitions */
@@ -224,7 +224,7 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .suggest-name { font-weight:600; }
 
 /* Routes / detail */
-.routes-page { max-width:420px; margin:16px auto; padding:0 16px 80px; }
+.routes-page { max-width:var(--container-w); margin:16px auto; padding:0 16px 80px; }
 .page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
 .routes-list { display:flex; flex-direction:column; gap:10px; }
 .route-card { display:flex; justify-content:space-between; padding:12px; border-radius:10px; background: #fff; border:1px solid rgba(0,0,0,0.04); box-shadow: 0 6px 12px rgba(10,20,40,0.04); cursor:pointer; }
@@ -262,6 +262,12 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   .container{padding:12px}
   .bottom-nav{left:0;transform:none;border-radius:0;padding:6px;justify-content:space-around}
 }
+
+/* 桌機寬度斷點：擴大容器寬度並維持置中 */
+@media (min-width:640px){ :root{ --container-w: 600px; } }
+@media (min-width:768px){ :root{ --container-w: 720px; } }
+@media (min-width:1024px){ :root{ --container-w: 960px; } }
+@media (min-width:1280px){ :root{ --container-w: 1080px; } }
 
 /* Bus marker styles (from Test2) */
 .bus-wrap{position:relative;transform:translate(-50%,-50%);pointer-events:none}
