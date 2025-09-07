@@ -418,3 +418,18 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .btn-pay-manage:hover {
   background: #0033A0;
 }
+
+/* Reservations enhanced list */
+.resv-list { display:flex; flex-direction:column; gap:12px; }
+.resv-card { display:flex; align-items:stretch; justify-content:space-between; gap:12px; padding:14px 16px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow: 0 1px 0 rgba(15,23,42,0.02); }
+.resv-main { flex:1 1 auto; min-width:0; }
+.resv-title { font-weight:800; font-size:16px; color:#0f172a; letter-spacing:.2px; }
+.resv-sub { margin-top:4px; color:#475569; font-size:14px; }
+.resv-status { margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; }
+.status-chip { font-size:12px; padding:3px 8px; border-radius:999px; border:1px solid transparent; line-height:1.25; }
+.status-chip.pending { background:#fff7ed; color:#9a3412; border-color:#fed7aa; }
+.status-chip.approved { background:#ecfdf5; color:#065f46; border-color:#a7f3d0; }
+.status-chip.rejected { background:#fef2f2; color:#991b1b; border-color:#fecaca; }
+.status-chip.secondary { background:#f1f5f9; color:#334155; border-color:#e2e8f0; }
+.resv-actions { display:flex; flex-direction:column; gap:8px; justify-content:center; }
+.resv-actions .btn { min-width:96px; }

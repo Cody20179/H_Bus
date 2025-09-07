@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, Column, Integer, String, TIMESTAMP, Boolean, ForeignKey, text, func, Enum
@@ -199,7 +199,7 @@ class UserUpdate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     last_login: Optional[str] = None
-    status: Optional[Literal["active", "inactive"]] = None
+    status: Optional[str] = None
     reservation_status: Optional[Literal["no_reservation", "pending", "approved", "rejected", "completed"]] = None
     preferences: Optional[str] = None
     privacy_settings: Optional[str] = None
@@ -1613,6 +1613,54 @@ def otp_consume(ticket: str):
     except Exception:
         data = {"account": None, "purpose": None}
     return {"ok": True, "account": data.get("account"), "purpose": data.get("purpose")}
+
+@app.post("/api/reservations")
+def create_reservation(
+    user_id: int,
+    booking_time: str,
+    booking_number: int,
+    booking_start_station_name: str,
+    booking_end_station_name: str
+):
+    sql = f"""
+    INSERT INTO reservation (
+        user_id, booking_time, booking_number, booking_start_station_name, booking_end_station_name
+    ) VALUES (
+        {user_id}, '{booking_time}', {booking_number}, '{booking_start_station_name}', '{booking_end_station_name}'
+    )
+    """
+    MySQL_Run(sql)
+    return {"message": "預約新增成功"}
+
+# 無前綴鏡像：支援經由前端代理改寫為 /reservations 的請求
+@app.post("/reservations")
+def create_reservation_noapi(
+    user_id: int,
+    booking_time: str,
+    booking_number: int,
+    booking_start_station_name: str,
+    booking_end_station_name: str
+):
+    sql = f"""
+    INSERT INTO reservation (
+        user_id, booking_time, booking_number, booking_start_station_name, booking_end_station_name
+    ) VALUES (
+        {user_id}, '{booking_time}', {booking_number}, '{booking_start_station_name}', '{booking_end_station_name}'
+    )
+    """
+    MySQL_Run(sql)
+    return {"message": "預約新增成功"}
+
+@app.get("/api/reservations/my")
+def reservations_my(user_id: int):
+    sql = f"SELECT * FROM reservation WHERE user_id = {user_id}"
+    result = MySQL_Run(sql)
+    return {"reservations": result}
+
+# Mirror route without "/api" prefix (Vite dev proxy rewrites "/api" -> "")
+@app.get("/reservations/my")
+def reservations_my_noapi(user_id: int):
+    return reservations_my(user_id)
 
 if __name__ == "__main__":
     uvicorn.run("Server_V04:app", host="0.0.0.0", port=8500, reload=True)

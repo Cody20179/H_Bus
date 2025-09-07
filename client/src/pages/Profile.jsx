@@ -1,6 +1,7 @@
-﻿import React, { useEffect, useState } from 'react'
+﻿import React, { useEffect, useState, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { otpRequest, otpVerify, otpConsume, bindContacts } from '../services/api'
+import { getMyReservations, cancelReservation } from '../services/api'
 function ProfilePage({ user, onLogin, onLogout }) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -98,6 +99,27 @@ function ProfilePage({ user, onLogin, onLogout }) {
   const [bindPhone, setBindPhone] = useState('')
   const [bindLoading, setBindLoading] = useState(false)
   const [bindErr, setBindErr] = useState('')
+  // 我的預約（列表、錯誤、提示、定位）
+  const [myResv, setMyResv] = useState([])
+  const [resvLoading, setResvLoading] = useState(false)
+  const [resvErr, setResvErr] = useState('')
+  const [toastMsg, setToastMsg] = useState('')
+  const resvRef = useRef(null)
+
+  
+
+  // 進頁面即嘗試載入我的預約
+  useEffect(() => {
+    const uid = user?.id ?? user?.user_id
+    if (!uid) return
+    let cancelled = false
+    setResvLoading(true); setResvErr('')
+    getMyReservations(uid)
+      .then((rows) => { if (!cancelled) setMyResv(rows) })
+      .catch((e) => { if (!cancelled) setResvErr(String(e.message || e)) })
+      .finally(() => { if (!cancelled) setResvLoading(false) })
+    return () => { cancelled = true }
+  }, [user])
 
   const handleLogin = async (e) => {
   e.preventDefault()
@@ -186,6 +208,34 @@ const handleRegister = async (e) => {
     const id = setInterval(() => setCooldown((c) => (c > 0 ? c - 1 : 0)), 1000)
     return () => clearInterval(id)
   }, [showVerify, cooldown])
+
+  // 進頁面即嘗試載入我的預約
+  useEffect(() => {
+    if (!user || !user.id) return
+    let cancelled = false
+    setResvLoading(true); setResvErr('')
+    getMyReservations(user.id)
+      .then((rows) => { if (!cancelled) setMyResv(rows) })
+      .catch((e) => { if (!cancelled) setResvErr(String(e.message || e)) })
+      .finally(() => { if (!cancelled) setResvLoading(false) })
+    return () => { cancelled = true }
+  }, [user])
+
+  // 接收導覽狀態（從 /reserve 送出預約後帶來的提示），並滾動到「我的預約」
+  useEffect(() => {
+    if (!location) return
+    const params = new URLSearchParams(location.search || '')
+    const tab = params.get('tab')
+    const toast = location.state && location.state.toast
+    if (toast) {
+      setToastMsg(String(toast))
+      try { navigate(location.pathname + location.search, { replace: true, state: {} }) } catch {}
+    }
+    if (tab === 'reservations' && resvRef.current) {
+      setTimeout(() => { resvRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 100)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location])
 
   if (!user) {
     return (
@@ -308,6 +358,11 @@ const handleRegister = async (e) => {
 
   return (
     <div className="container">
+      {toastMsg && (
+        <div style={{ background:'#ecfdf5', border:'1px solid #34d399', color:'#065f46', padding:10, borderRadius:8, marginBottom:12 }}>
+          {toastMsg}
+        </div>
+      )}
       {/* 使用者 App 概覽 */}
       <section className="card profile-overview">
         <div className="overview-hero">
@@ -321,20 +376,84 @@ const handleRegister = async (e) => {
         </div>
       </section>
 
-      {/* 預約紀錄 */}
-      <section className="card">
-        <div className="card-title"><span>預約紀錄</span></div>
-        <div className="list">
-          <div className="item">
-            <div>
-              <div style={{ fontWeight:700 }}>202 路線預約</div>
-              <div className="item-desc">09/10 08:30 從 A 地到 B 地</div>
-            </div>
-            <div className="item-col">
-              <button className="btn btn-blue" onClick={()=>alert('查看預約 /api/reservations/my')}>查看</button>
-              <button className="btn" onClick={()=>alert('取消預約 /api/reservations/cancel')}>取消</button>
-            </div>
-          </div>
+      {/* 預約紀錄（串接後端） */}
+      <section className="card" ref={resvRef}>
+        <div className="card-title">
+          <span>我的預約</span>
+          <button
+            className="link-btn"
+            onClick={() => {
+              const uid = user?.id ?? user?.user_id
+              if (!uid) { alert('請先登入'); return }
+              setResvLoading(true); setResvErr('')
+              getMyReservations(uid)
+                .then(setMyResv)
+                .catch((e) => setResvErr(String(e.message || e)))
+                .finally(() => setResvLoading(false))
+            }}
+          >刷新</button>
+        </div>
+        <div className="resv-list">
+          {resvLoading && <div className="muted small">載入中…</div>}
+          {resvErr && <div className="small" style={{ color: '#c0392b' }}>{resvErr}</div>}
+          {!resvLoading && !resvErr && myResv.length === 0 && (
+            <div className="muted small">尚無預約，前往預約吧。</div>
+          )}
+          {myResv.map((r) => {
+            const fmt = (s) => {
+              try {
+                if (!s) return '-'
+                const d = new Date(s)
+                if (isNaN(d)) return String(s)
+                const y = d.getFullYear()
+                const M = String(d.getMonth()+1).padStart(2,'0')
+                const D = String(d.getDate()).padStart(2,'0')
+                const h = String(d.getHours()).padStart(2,'0')
+                const m = String(d.getMinutes()).padStart(2,'0')
+                return `${y}-${M}-${D} ${h}:${m}`
+              } catch { return String(s) }
+            }
+            const cls = (v) => {
+              const s = String(v||'').toLowerCase()
+              if (s.includes('pending')) return 'pending'
+              if (s.includes('approved')||s.includes('paid')||s.includes('assigned')||s.includes('complete')) return 'approved'
+              if (s.includes('reject')||s.includes('cancel')||s.includes('fail')) return 'rejected'
+              return 'secondary'
+            }
+            const cancellable = (String(r.status).includes('審核中') || String(r.review_status||'').toLowerCase().includes('pending'))
+            return (
+              <div className="resv-card" key={r.id}>
+                <div className="resv-main">
+                  <div className="resv-title">{r.fromName} → {r.toName}</div>
+                  <div className="resv-sub">{fmt(r.when)} ・ {r.people} 人</div>
+                  <div className="resv-status">
+                    <span className={`status-chip ${cls(r.review_status)}`}>審核 {r.review_status || '-'}</span>
+                    <span className={`status-chip ${cls(r.dispatch_status)}`}>調度 {r.dispatch_status || '-'}</span>
+                    <span className={`status-chip ${cls(r.payment_status)}`}>支付 {r.payment_status || '-'}</span>
+                  </div>
+                </div>
+                <div className="resv-actions">
+                  <button className="btn btn-blue" onClick={() => alert(`${r.fromName} → ${r.toName}\n${fmt(r.when)} ・ ${r.people} 人`) }>查看路線</button>
+                  {cancellable && (
+                    <button
+                      className="btn"
+                      onClick={async () => {
+                        if (!window.confirm('確定取消此預約？')) return
+                        try {
+                          await cancelReservation({ reservationId: r.id })
+                          const uid = user?.id ?? user?.user_id
+                          const next = await getMyReservations(uid)
+                          setMyResv(next)
+                        } catch (e) {
+                          alert(String(e.message || e))
+                        }
+                      }}
+                    >取消</button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
       </section>
 

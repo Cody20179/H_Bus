@@ -117,4 +117,103 @@ export async function bindContacts({ username, phone, email }) {
     } catch {}
     return { ok: false, error: String(e.message || e) }
   }
+  
+}
+
+// --- Stations (Hualien) ---
+// 取得 /yo_hualien 的站點清單
+export async function getStations() {
+  const res = await fetch(`${BASE}/yo_hualien`, {
+    headers: { accept: 'application/json' },
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to load stations: ${res.status}`)
+  }
+  const data = await res.json()
+  // 正規化：確保數值類型且提供簡易 id
+  return data
+    .filter((s) => Number.isFinite(Number(s.latitude)) && Number.isFinite(Number(s.longitude)))
+    .map((s, i) => ({
+      id: i + 1,
+      name: s.station_name,
+      address: s.address,
+      lat: Number(s.latitude),
+      lng: Number(s.longitude),
+      _raw: s,
+    }))
+}
+
+// --- Reservations ---
+export async function getMyReservations(userId) {
+  const res = await fetch(`${BASE}/reservations/my?user_id=${encodeURIComponent(userId)}`, {
+    headers: { accept: 'application/json' },
+  })
+  if (!res.ok) throw new Error(`Failed to load reservations: ${res.status}`)
+  const data = await res.json()
+  const rows = Array.isArray(data) ? data : (Array.isArray(data?.reservations) ? data.reservations : [])
+  return rows.map((r) => ({
+    id: r.reservation_id ?? r.id,
+    userId: r.user_id,
+    when: r.booking_time,
+    people: r.booking_number,
+    fromName: r.booking_start_station_name,
+    toName: r.booking_end_station_name,
+    status: r.reservation_status, // 可能是數字或字串
+    review_status: r.review_status,
+    dispatch_status: r.dispatch_status,
+    payment_status: r.payment_status,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    _raw: r,
+  }))
+}
+
+export async function cancelReservation({ reservationId }) {
+  const res = await fetch(`${BASE}/reservations/${encodeURIComponent(reservationId)}`, {
+    method: 'DELETE',
+    headers: { accept: 'application/json' },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.detail || `Cancel failed: ${res.status}`)
+  return data
+}
+
+export async function createReservation(payload) {
+  // 你的後端 FastAPI 函式參數（未使用 Body/Form），預設 expects Query 參數
+  // 因此改成以 QueryString 傳遞，method 維持 POST
+  const params = new URLSearchParams()
+  Object.entries(payload || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) params.append(k, String(v))
+  })
+  const url = `${BASE}/reservations?${params.toString()}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { accept: 'application/json' },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.detail || `Create failed: ${res.status}`)
+  return data
+}
+
+export async function getReservation(reservationId) {
+  const res = await fetch(`${BASE}/reservations/${encodeURIComponent(reservationId)}`, {
+    headers: { accept: 'application/json' },
+  })
+  if (!res.ok) throw new Error(`Get failed: ${res.status}`)
+  return await res.json()
+}
+
+export async function updateReservation(reservationId, fields) {
+  const params = new URLSearchParams()
+  Object.entries(fields || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) params.append(k, String(v))
+  })
+  const res = await fetch(`${BASE}/reservations/${encodeURIComponent(reservationId)}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+    body: params.toString(),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.detail || `Update failed: ${res.status}`)
+  return data
 }
