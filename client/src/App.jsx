@@ -7,6 +7,7 @@ import ReservePage from './pages/Reserve'
 import ProfilePage from './pages/Profile'
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { getRoutes, getRouteStops } from './services/api'
+import NearbyStations from './components/NearbyStations'
 // Home view is kept here to avoid missing-file issues.
 // If you already have src/pages/HomeView.jsx you can replace this with an import.
 function HomeView({ onAction, onNavigateRoutes }) {
@@ -271,9 +272,11 @@ export default function App() {
   const [user, setUser] = useState(null)
   const navigate = useNavigate()
   const location = useLocation()
+  const [showNearby, setShowNearby] = useState(false)
 
   const handleAction = (name) => {
     console.log(`${name} 被按下`)
+    if (name && String(name).includes('附近站點')) setShowNearby(true)
   }
 
   const navMap = {
@@ -324,6 +327,7 @@ export default function App() {
         </Routes>
       </div>
       <BottomNav onNavClick={handleNav} active={activeLabel} />
+      {showNearby && <NearbyStations onClose={() => setShowNearby(false)} />}
     </div>
   )
 }

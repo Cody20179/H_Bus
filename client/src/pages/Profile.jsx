@@ -1,46 +1,191 @@
-import React, { useState } from 'react'
+﻿import React, { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-
-export default function ProfilePage({ user, onLogin, onLogout }) {
+import { otpRequest, otpVerify, otpConsume, bindContacts } from '../services/api'
+function ProfilePage({ user, onLogin, onLogout }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const [mode, setMode] = useState('login') // 'login' | 'signup'
-  const [account, setAccount] = useState('') // email or phone
-  const [password, setPassword] = useState('')
-  const [fullName, setFullName] = useState('') // for signup
+  const [mode, setMode] = useState('login')
+  const [account, setAccount] = useState('') // 使用者帳號
+  const [password, setPassword] = useState('') // 密碼
+  const [confirmPassword, setConfirmPassword] = useState('') // 再次確認密碼
+  const [email, setEmail] = useState('') // Email
+  const [phone, setPhone] = useState('') // 手機
+  const [verifyCode, setVerifyCode] = useState('') // 驗證碼
+  const [fullName, setFullName] = useState('') // 姓名
   const [remember, setRemember] = useState(true)
   const [error, setError] = useState(null)
+  // Moved up to keep hooks order stable
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [otpMask, setOtpMask] = useState('')
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
+
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editField, setEditField] = useState('') // 'email' | 'phone' | 'password'
+  const [editValue, setEditValue] = useState('')
+  const [editCode, setEditCode] = useState('')
+  const [editError, setEditError] = useState('')
+
+
+
+
+  // API endpoints
+  useEffect(() => {
+    const endpoints = {
+      routes: '/api/All_Route',
+      routeStops: '/api/Route_Stations',
+      realtime: '/api/realtime',
+      reservationsMy: '/api/reservations/my',
+      reservationNext: '/api/reservations/next',
+      cancelReservation: '/api/reservations/cancel',
+      paymentMethods: '/api/payments/methods',
+      paymentTransactions: '/api/payments/transactions',
+      tripsRecent: '/api/trips/recent',
+      tripDetail: '/api/trips/:id',
+    }
+    console.log('[Profile] API endpoints reserved:', endpoints)
+  }, [])
+
+  const handleTestPush = async () => {
+    try {
+      if (!('Notification' in window)) {
+        alert('此瀏覽器不支援通知功能')
+        return
+      }
+      const perm = await Notification.requestPermission()
+      console.log('[Push] permission:', perm)
+      if (perm !== 'granted') {
+        alert('通知權限未開啟')
+        return
+      }
+      const title = '測試通知'
+      const body = `這是一則測試通知：${new Date().toLocaleTimeString()}`
+
+      // 測試通知 SW 及 HTTPS 環境
+      if ('serviceWorker' in navigator && window.isSecureContext) {
+        const reg = await navigator.serviceWorker.register('/sw.js')
+        await reg.update().catch(()=>{})
+        await reg.showNotification(title, { body, icon: '/icon.png', tag: 'hbus-test', renotify: true })
+        console.log('[Push] one-shot notification via ServiceWorker shown')
+        return
+      }
+
+      // 瀏覽器不支援 SW 或非 HTTPS 環境
+      try {
+        new Notification(title, { body, icon: '/icon.png', tag: 'hbus-fallback' })
+        console.log('[Push] fallback Notification shown (no SW)')
+      } catch (e) {
+        console.warn('[Push] fallback Notification failed. Secure context likely required.', e)
+        alert('此環境需要 Service Worker，請在 HTTPS 或 localhost 測試通知')
+      }
+    } catch (e) {
+      console.error('[Push] error', e)
+      alert('推播發送失敗，請查看主控台')
+    }
+  }
 
   // Verify code modal state
   const [showVerify, setShowVerify] = useState(false)
-  const [verifyCode, setVerifyCode] = useState('')
   const [verifyErr, setVerifyErr] = useState(null)
   const [channel, setChannel] = useState('email') // 'email' | 'sms'
   const [pendingUser, setPendingUser] = useState(null)
   const [resendMsg, setResendMsg] = useState('')
+  const [debugCode, setDebugCode] = useState('')
+  const otpPurpose = mode === 'signup' ? 'signup_username' : 'login_username'
+  // 綁定聯絡方式
+  const [showBind, setShowBind] = useState(false)
+  const [bindEmail, setBindEmail] = useState('')
+  const [bindPhone, setBindPhone] = useState('')
+  const [bindLoading, setBindLoading] = useState(false)
+  const [bindErr, setBindErr] = useState('')
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError(null)
-    if (!account || !password) {
-      setError('請輸入帳號與密碼')
-      return
-    }
-    const isEmail = /.+@.+\..+/.test(account)
-    const isPhone = /^\+?\d{8,15}$/.test(account.replaceAll(/[-\s]/g, ''))
-    if (!isEmail && !isPhone) {
-      setError('請輸入正確的 Email 或手機號碼')
-      return
-    }
-    // Prepare for verify step (default code is 1234)
-    const display = mode === 'signup' && fullName ? fullName : (isEmail ? account.split('@')[0] : `用戶${account.slice(-4)}`)
-    setPendingUser({ name: display, account, provider: isEmail ? 'email' : 'phone', remember })
-    setChannel(isEmail ? 'email' : 'sms')
-    setVerifyCode('')
+  const handleLogin = async (e) => {
+  e.preventDefault()
+  setError(null)
+  if (!account || !password) {
+    setError('請輸入帳號與密碼')
+    return
+  }
+  try {
+    setOtpLoading(true)
     setVerifyErr(null)
     setResendMsg('')
+    // 先以帳密打登入 API
+    const resp = await fetch('/api/users/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: account, password })
+    })
+    if (!resp.ok) {
+      const msg = await resp.text().catch(()=> '')
+      throw new Error(msg || '登入失敗，請檢查帳號或密碼')
+    }
+    const data = await resp.json().catch(()=> ({}))
+    setPendingUser(data || { name: account, account, provider: 'username' })
+
+    // 接著送 OTP
+    const req = await otpRequest({ account, purpose: 'login_username', channel })
+    if (req?.debug_code) setDebugCode(String(req.debug_code))
+    setOtpMask(req?.sent_to || '')
+    setCooldown(Number(req?.cooldown || 60))
     setShowVerify(true)
+  } catch (err) {
+    setError(String(err.message || err))
+  } finally {
+    setOtpLoading(false)
   }
+}
+
+const handleRegister = async (e) => {
+  e.preventDefault()
+  setError(null)
+  if (!account) { setError('請輸入帳號'); return }
+  if (!phone) { setError('請輸入手機號碼'); return }
+  if (!password || !confirmPassword) { setError('請輸入密碼並再次確認'); return }
+  if (password !== confirmPassword) { setError('兩次密碼不一致'); return }
+  try {
+    setOtpLoading(true)
+    setVerifyErr(null)
+    setResendMsg('')
+    const resp = await fetch('/api/Create_users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        line_id: null,
+        username: account,
+        password,
+        email: email || '',
+        phone,
+        status: 'active',
+        reservation_status: 'no_reservation',
+        preferences: '',
+        privacy_settings: ''
+      })
+    })
+    if (!resp.ok) {
+      const msg = await resp.text().catch(()=> '')
+      throw new Error(msg || '註冊失敗，請稍後再試')
+    }
+    const data = await resp.json().catch(()=> ({}))
+    setPendingUser(data || { name: account, account, provider: 'username' })
+    const req = await otpRequest({ account, purpose: 'signup_username', channel })
+    if (req?.debug_code) setDebugCode(String(req.debug_code))
+    setOtpMask(req?.sent_to || '')
+    setCooldown(Number(req?.cooldown || 60))
+    setShowVerify(true)
+  } catch (err) {
+    setError(String(err.message || err))
+  } finally {
+    setOtpLoading(false)
+  }
+}
+
+  // 驗證碼倒數計時
+  useEffect(() => {
+    if (!showVerify || cooldown <= 0) return
+    const id = setInterval(() => setCooldown((c) => (c > 0 ? c - 1 : 0)), 1000)
+    return () => clearInterval(id)
+  }, [showVerify, cooldown])
 
   if (!user) {
     return (
@@ -52,101 +197,104 @@ export default function ProfilePage({ user, onLogin, onLogout }) {
               <button className={`auth-tab ${mode==='login'?'active':''}`} onClick={() => setMode('login')}>登入</button>
               <button className={`auth-tab ${mode==='signup'?'active':''}`} onClick={() => setMode('signup')}>註冊</button>
             </div>
-            <form onSubmit={handleSubmit} className="auth-form" style={{ marginTop: 10 }}>
-              {mode === 'signup' && (
-                <input
-                  className="auth-input"
-                  type="text"
-                  placeholder="姓名"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  autoComplete="name"
-                />
-              )}
-              <input
-                className="auth-input"
-                type="text"
-                placeholder="Email 或 手機號碼"
-                value={account}
-                onChange={(e) => setAccount(e.target.value)}
-                autoComplete="username"
-              />
-              <input
-                className="auth-input"
-                type="password"
-                placeholder="密碼"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              />
-              <div className="auth-row">
-                <label className="auth-remember">
-                  <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> 記住我
-                </label>
-                <button type="button" className="auth-link" onClick={() => alert('忘記密碼流程尚未串接 API')}>忘記密碼？</button>
-              </div>
-              {error && <div className="auth-error">{error}</div>}
-              <button className="auth-button" type="submit">{mode==='login' ? 'SIGN IN' : 'SIGN UP'}</button>
-            </form>
+            {mode === 'login' ? (
+              <form onSubmit={handleLogin} className="auth-form" style={{ marginTop: 10 }}>
+  <input className="auth-input" type="text" placeholder="請輸入帳號/Username" value={account} onChange={e => setAccount(e.target.value)} autoComplete="username" />
+  <input className="auth-input" type="password" placeholder="請輸入密碼" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
+  {error && <div className="auth-error">{error}</div>}
+  <button className="auth-button" type="submit">登入</button>
+</form>
+            ) : (
+              <form onSubmit={handleRegister} className="auth-form" style={{ marginTop: 10 }}>
+                <input className="auth-input" type="text" placeholder="請輸入帳號/Username" value={account} onChange={e => setAccount(e.target.value)} autoComplete="username" />
+                <input className="auth-input" type="email" placeholder="Email (選填)" value={email} onChange={e => setEmail(e.target.value)} />
+                <input className="auth-input" type="tel" placeholder="手機號碼" value={phone} onChange={e => setPhone(e.target.value)} />
+                <input className="auth-input" type="password" placeholder="請輸入密碼" value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" />
+                <input className="auth-input" type="password" placeholder="再次確認密碼" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} autoComplete="new-password" />
+                {error && <div className="auth-error">{error}</div>}
+                <button className="auth-button" type="submit">註冊</button>
+              </form>
+            )}
           </div>
         </section>
 
         {showVerify && (
           <div className="modal-overlay">
             <div className="modal-card">
-              <div className="card-title"><span>輸入驗證碼</span></div>
+              <div className="card-title"><span>驗證碼</span></div>
               <div className="card-body">
-                <div className="small" style={{ marginBottom: 8 }}>
-                  已傳送驗證碼到 {channel === 'sms' ? '簡訊' : 'Email'}：
-                  <strong> {(() => {
-                    const v = account
-                    if (!v) return ''
-                    if (channel === 'email') {
-                      const parts = v.split('@')
-                      return parts.length === 2 ? `${parts[0].slice(0,1)}***@${parts[1]}` : v
-                    }
-                    // phone mask
-                    const digits = v.replace(/\D/g, '')
-                    return digits.length >= 5 ? `${digits.slice(0,3)}****${digits.slice(-2)}` : v
-                  })()} </strong>
-                </div>
+                {channel ? (
+                  <>已寄送至 {channel === 'sms' ? '簡訊' : 'Email'}：<strong>{otpMask || '(隱碼)'}</strong></>
+                ) : (
+                  <>請輸入驗證碼{debugCode && (<span style={{ marginLeft: 6 }}>(開發碼 <strong>{debugCode}</strong>)</span>)} </>
+                )}
                 <input
                   className="auth-input"
-                  placeholder="請輸入 1234"
+                  placeholder="請輸入驗證碼"
                   value={verifyCode}
                   onChange={(e) => setVerifyCode(e.target.value)}
                   inputMode="numeric"
                 />
                 {verifyErr && <div className="auth-error" style={{ marginTop: 8 }}>{verifyErr}</div>}
                 <div className="auth-row" style={{ marginTop: 10 }}>
-                  <div className="chip-group">
-                    <button type="button" className={`chip ${channel==='sms'?'active':''}`} onClick={() => setChannel('sms')}>簡訊</button>
-                    <button type="button" className={`chip ${channel==='email'?'active':''}`} onClick={() => setChannel('email')}>Email</button>
-                  </div>
+                  {channel && (
+                    <div className="chip-group" aria-hidden>
+                      <button type="button" className={`chip ${channel==='sms'?'active':''}`} onClick={() => setChannel('sms')}>簡訊</button>
+                      <button type="button" className={`chip ${channel==='email'?'active':''}`} onClick={() => setChannel('email')}>Email</button>
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="link-btn"
-                    onClick={() => { setResendMsg(`驗證碼已重新寄送（${channel==='sms'?'簡訊':'Email'}）`); setVerifyErr(null) }}
-                  >重新寄送</button>
+                    disabled={cooldown > 0 || otpLoading}
+                    onClick={async () => {
+                      if (cooldown > 0) return
+                      try {
+                        setVerifyErr(null)
+                        setOtpLoading(true)
+                        const resp = await otpRequest({ account, purpose: otpPurpose, channel })
+                        setResendMsg(`已重新發送${channel ? '，透過' + (channel==='sms'?'簡訊':'Email') : ''}`)
+                        if (resp?.debug_code) console.log('[OTP] debug_code:', resp.debug_code)
+                        setOtpMask(resp?.sent_to || '')
+                        if (resp?.debug_code) setDebugCode(String(resp.debug_code))
+                        setCooldown(Number(resp?.cooldown || 60))
+                      } catch (e) {
+                        setVerifyErr(String(e.message || e))
+                        setResendMsg('')
+                        if (!cooldown) setCooldown(60)
+                      } finally {
+                        setOtpLoading(false)
+                      }
+                    }}
+                  >{cooldown > 0 ? `重新發送(${cooldown}s)` : '重新發送'}</button>
                 </div>
-                {resendMsg && <div className="small muted" style={{ marginTop: 6 }}>{resendMsg}</div>}
+                {resendMsg && <div className="small muted">帳號：{user.username || '(未設定)'}</div>}
                 <div className="modal-actions">
                   <button className="btn" type="button" onClick={() => setShowVerify(false)}>取消</button>
                   <button
                     className="btn btn-blue"
                     type="button"
-                    onClick={() => {
-                      if (verifyCode.trim() === '1234') {
-                        const params = new URLSearchParams(location.search)
-                        const from = params.get('from')
-                        onLogin?.(pendingUser || { name: '使用者', account })
+                    disabled={!verifyCode || otpLoading}
+                    onClick={async () => {
+                      try {
+                        setVerifyErr(null)
+                        setOtpLoading(true)
+                        const v = await otpVerify({ account, code: verifyCode.trim(), purpose: otpPurpose })
+                        console.log('[OTP] verify ok, ticket=', v.ticket)
+                        const info = await otpConsume(v.ticket)
+                        console.log('[OTP] consume ok:', info)
                         setShowVerify(false)
-                        navigate(from === 'reserve' ? '/reserve' : '/profile', { replace: true })
-                      } else {
-                        setVerifyErr('驗證碼錯誤，請再試一次（預設 1234）')
+                        const userResp = await fetch(`/api/users/${account}`)
+                        const userData = await userResp.json()
+                        if (onLogin) onLogin(userData)
+                      } catch (e) {
+                        console.error('[OTP] verify/consume failed:', e)
+                        setVerifyErr(String(e.message || e))
+                      } finally {
+                        setOtpLoading(false)
                       }
                     }}
-                  >確認</button>
+                  >{otpLoading ? '驗證中' : '驗證'}</button>
                 </div>
               </div>
             </div>
@@ -156,58 +304,164 @@ export default function ProfilePage({ user, onLogin, onLogout }) {
     )
   }
 
+  
+
   return (
     <div className="container">
-      {/* 帳號設定 */}
-      <section className="card profile-section">
-        <div className="section-title">帳號設定（Account）</div>
+      {/* 使用者 App 概覽 */}
+      <section className="card profile-overview">
+        <div className="overview-hero">
+          <div className="overview-meta">
+            <div className="meta-title">{user.username} 的帳戶</div>
+            <div className="meta-list">
+              <div className="small muted">帳號：{user.account || '(未設定)'}</div>
+              <div className="small muted">狀態：一般使用者</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 預約紀錄 */}
+      <section className="card">
+        <div className="card-title"><span>預約紀錄</span></div>
         <div className="list">
           <div className="item">
-            <div className="item-col">
-              <div className="avatar">{(user.name||'U').slice(0,2).toUpperCase()}</div>
-              <div>
-                <div style={{ fontWeight: 800 }}>{user.name}</div>
-                <div className="item-desc">使用者 ID：{user.id || '(暫無)'}</div>
-              </div>
+            <div>
+              <div style={{ fontWeight:700 }}>202 路線預約</div>
+              <div className="item-desc">09/10 08:30 從 A 地到 B 地</div>
             </div>
-            <span className="badge">一般會員</span>
+            <div className="item-col">
+              <button className="btn btn-blue" onClick={()=>alert('查看預約 /api/reservations/my')}>查看</button>
+              <button className="btn" onClick={()=>alert('取消預約 /api/reservations/cancel')}>取消</button>
+            </div>
           </div>
+        </div>
+      </section>
+
+      {/* 假資料區塊加上 TODO */}
+      {/* 最近行程 */}
+      <section className="card">
+        <div className="card-title"><span>最近行程</span></div>
+        <div className="list">
+          {[
+            { id:1, route:'202 路線', dir:'去程', date:'09/05 08:32', fare:28, status:'已完成' },
+            { id:2, route:'路線 2', dir:'回程', date:'09/04 18:11', fare:24, status:'已完成' },
+            { id:3, route:'路線 7', dir:'去程', date:'09/03 08:29', fare:20, status:'已完成' },
+          ].map((t)=> (
+            <div className="item" key={t.id}>
+              <div>
+                <div style={{ fontWeight:700 }}>{t.route} - {t.dir}</div>
+                <div className="item-desc">{t.date} - ${t.fare} - {t.status}</div>
+              </div>
+              <button className="btn-pay-manage" onClick={()=>alert('查看行程 /api/trips/', t.id)}>查看</button>
+            </div>
+          ))}
+        </div>
+        <div className="mt-12" style={{ display:'flex', justifyContent:'flex-end' }}>
+          <button className="btn" onClick={()=>alert('查看更多 /api/trips/recent')}>查看更多</button>
+        </div>
+      </section>
+
+      {/* 支付方式 */}
+      <section className="card">
+        <div className="card-title"><span>支付方式</span></div>
+        <div className="list">
+          <div className="item">
+            <div>
+              <div style={{ fontWeight:700 }}>信用卡</div>
+              <div className="item-desc">VISA  - 到期日 05/27</div>
+            </div>
+            <button className="btn-pay-manage" onClick={()=>alert('管理支付方式 /api/payments/methods')}>管理</button>
+          </div>
+        </div>
+      </section>
+
+      {/* 測試推播 */}
+      <section className="card">
+        <div className="card-title"><span>推播測試</span></div>
+        <div className="card-body">
+          <button className="btn btn-blue" onClick={handleTestPush}>發送測試推播</button>
+          <div className="small muted" style={{ marginTop: 8 }}>請在 HTTPS 或 localhost 環境下測試推播功能</div>
+        </div>
+      </section>
+
+      {/* 登出 */}
+      <section className="card">
+        <div className="list">
+          <div className="item">
+            <div className="item-col"><strong></strong></div>
+            <button className="btn btn-orange" onClick={onLogout}>登出</button>
+          </div>
+        </div>
+      </section>
+
+      {/* 高級設定 */}
+      <section className="card">
+        <div className="card-title">
+          <span>高級設定</span>
+          <button className="link-btn" onClick={() => setShowAdvanced(v=>!v)}>{showAdvanced ? '隱藏' : '顯示'}</button>
+        </div>
+        {!showAdvanced && (
+          <div className="small muted">高級設定包含更多選項，請小心操作</div>
+        )}
+      </section>
+
+      {showAdvanced && (
+        <>
+      
+      {/* 帳號設定 */}
+      <section className="card profile-section">
+        <div className="section-title">帳號設定</div>
+        <div className="list">
+          {/* 綁定聯絡方式 */}
           <div className="item">
             <div>
               <div style={{ fontWeight: 700 }}>電子郵件</div>
-              <div className="item-desc">{user.account?.includes('@') ? user.account : '尚未綁定'} · 未驗證</div>
+              <div className="item-desc">{user.email || '未設定'} - 已驗證</div>
             </div>
             <div className="item-col">
-              <button className="btn btn-blue" onClick={() => alert('寄送驗證信（示意）')}>發送驗證</button>
+              <button className="btn-pay-manage" onClick={() => {
+                setEditField('email');
+                setEditValue(user.email || '');
+                setShowEditModal(true);
+              }}>修改</button>
             </div>
           </div>
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>手機</div>
-              <div className="item-desc">{user.account && !user.account.includes('@') ? user.account : '尚未綁定'} · 未驗證</div>
+              <div style={{ fontWeight: 700 }}>手機號碼</div>
+              <div className="item-desc">{user.phone || '未設定'} - 已驗證</div>
             </div>
             <div className="item-col">
-              <button className="btn" onClick={() => alert('發送簡訊驗證（示意）')}>發送驗證</button>
+              <button className="btn-pay-manage" onClick={() => {
+                setEditField('phone');
+                setEditValue(user.phone || '');
+                setShowEditModal(true);
+              }}>修改</button>
             </div>
           </div>
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>更改密碼</div>
-              <div className="item-desc">建議定期更新密碼提升安全性</div>
+              <div style={{ fontWeight: 700 }}>密碼</div>
+              <div className="item-desc">已設定密碼</div>
             </div>
-            <button className="btn" onClick={() => alert('更改密碼流程（示意）')}>變更</button>
+            <button className="btn-pay-manage" onClick={() => {
+              setEditField('password');
+              setEditValue('');
+              setShowEditModal(true);
+            }}>修改</button>
           </div>
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>兩步驟驗證（2FA）</div>
-              <div className="item-desc">使用驗證器 App 或簡訊</div>
+              <div style={{ fontWeight: 700 }}>雙重驗證/2FA</div>
+              <div className="item-desc">使用 App 進行雙重驗證</div>
             </div>
-            <input className="switch" type="checkbox" onChange={(e)=>alert(`2FA ${e.target.checked?'啟用':'停用'}（示意）`)} />
+            <input className="switch" type="checkbox" onChange={(e)=>alert(`2FA ${e.target.checked ? '已開啟' : '已關閉'}（示意）`)} />
           </div>
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>社群/第三方登入</div>
-              <div className="item-desc">Google / Apple / Facebook 綁定與解除</div>
+              <div style={{ fontWeight: 700 }}>社交帳號綁定</div>
+              <div className="item-desc">Google / Apple / Facebook 綁定</div>
             </div>
             <div className="item-col">
               <button className="btn">Google</button>
@@ -218,150 +472,146 @@ export default function ProfilePage({ user, onLogin, onLogout }) {
         </div>
       </section>
 
-      {/* 付款與票務 */}
+      {/* 支付方式 */}
+      {/* TODO: 支付方式區塊 */}
+      {/* 偏好設定 */}
       <section className="card profile-section">
-        <div className="section-title">付款與票務（Payment & Ticket）</div>
-        <div className="list">
-          <div className="item">
-            <div>
-              <div style={{ fontWeight: 700 }}>付款方式</div>
-              <div className="item-desc">尚未新增付款方式</div>
-            </div>
-            <button className="btn btn-blue" onClick={()=>alert('新增付款方式 / tokenization（示意）')}>新增</button>
-          </div>
-          <div className="item">
-            <div>
-              <div style={{ fontWeight: 700 }}>票卡管理</div>
-              <div className="item-desc">餘額、儲值紀錄、票種與折扣憑證</div>
-            </div>
-            <button className="btn" onClick={()=>alert('開啟票卡管理（示意）')}>管理</button>
-          </div>
-          <div className="item">
-            <div>
-              <div style={{ fontWeight: 700 }}>發票／帳單資訊</div>
-              <div className="item-desc">發票類型、統編、收件地址</div>
-            </div>
-            <button className="btn" onClick={()=>alert('設定發票資料（示意）')}>設定</button>
-          </div>
-        </div>
-      </section>
-
-      {/* 個人資料 */}
-      <section className="card profile-section">
-        <div className="section-title">個人資料（Personal info）</div>
-        <div className="list">
-          <div className="item">
-            <div>
-              <div style={{ fontWeight: 700 }}>基本資料</div>
-              <div className="item-desc">姓名、暱稱、生日、性別</div>
-            </div>
-            <button className="btn" onClick={()=>alert('編輯基本資料（示意）')}>編輯</button>
-          </div>
-          <div className="item">
-            <div>
-              <div style={{ fontWeight: 700 }}>地址與常用站點</div>
-              <div className="item-desc">寄送地址、我的最愛路線與站牌</div>
-            </div>
-            <button className="btn" onClick={()=>alert('管理地址與站點（示意）')}>管理</button>
-          </div>
-          <div className="item">
-            <div>
-              <div style={{ fontWeight: 700 }}>身分證明</div>
-              <div className="item-desc">上傳證明文件、核驗狀態</div>
-            </div>
-            <button className="btn" onClick={()=>alert('上傳/查看證明（示意）')}>上傳</button>
-          </div>
-        </div>
-      </section>
-
-      {/* 通知與偏好 */}
-      <section className="card profile-section">
-        <div className="section-title">通知與偏好（Preferences）</div>
+        <div className="section-title">偏好設定</div>
         <div className="list">
           <div className="item">
             <div>
               <div style={{ fontWeight: 700 }}>推播通知</div>
-              <div className="item-desc">到站提醒、路況異常、帳單與行程通知</div>
+              <div className="item-desc">開啟推播通知</div>
             </div>
             <input type="checkbox" className="switch" />
           </div>
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>語言與時區</div>
-              <div className="item-desc">介面語言、時區與地圖顯示偏好</div>
+              <div style={{ fontWeight: 700 }}>語言設定</div>
+              <div className="item-desc">選擇顯示語言</div>
             </div>
-            <button className="btn" onClick={()=>alert('設定偏好（示意）')}>設定</button>
+            <button className="btn" onClick={()=>alert('語言設定')}>設定</button>
           </div>
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>隱私偏好</div>
-              <div className="item-desc">位置收集、使用分析資料</div>
+              <div style={{ fontWeight: 700 }}>主題設定</div>
+              <div className="item-desc">選擇顯示主題</div>
             </div>
-            <button className="btn" onClick={()=>alert('設定隱私（示意）')}>設定</button>
+            <button className="btn" onClick={()=>alert('主題設定')}>設定</button>
           </div>
         </div>
       </section>
 
-      {/* 安全與登入狀態 */}
+      {/* 安全與會話 */}
       <section className="card profile-section">
-        <div className="section-title">安全與登入狀態（Security & Sessions）</div>
+        <div className="section-title">安全與會話</div>
         <div className="list">
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>已登入裝置</div>
-              <div className="item-desc">查看裝置並可登出各裝置</div>
+              <div style={{ fontWeight: 700 }}>登出所有裝置</div>
+              <div className="item-desc">登出所有已登入裝置</div>
             </div>
-            <button className="btn" onClick={()=>alert('管理裝置（示意）')}>管理</button>
+            <button className="btn" onClick={()=>alert('登出所有裝置')}>登出</button>
           </div>
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>安全事件 / 最近活動</div>
-              <div className="item-desc">登入時間、IP、位置</div>
+              <div style={{ fontWeight: 700 }}>刪除帳號</div>
+              <div className="item-desc">永久刪除帳號</div>
             </div>
-            <button className="btn" onClick={()=>alert('查看活動（示意）')}>查看</button>
+            <button className="btn" onClick={()=>alert('刪除帳號')}>刪除</button>
           </div>
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>帳號刪除 / 資料匯出</div>
-              <div className="item-desc">刪除流程、資料匯出（JSON / CSV）</div>
+              <div style={{ fontWeight: 700 }}>匯出資料</div>
+              <div className="item-desc">匯出帳號資料為 JSON / CSV</div>
             </div>
             <div className="item-col">
-              <button className="btn" onClick={()=>alert('資料匯出（示意）')}>匯出</button>
-              <button className="btn" onClick={()=>alert('帳號刪除（示意）')}>刪除</button>
+              <button className="btn" onClick={()=>alert('匯出資料')}>匯出</button>
+              <button className="btn" onClick={()=>alert('刪除資料')}>刪除</button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 其他：登出、客服與法務 */}
+      {/* 幫助 */}
       <section className="card profile-section">
-        <div className="section-title">其他</div>
+        <div className="section-title">幫助</div>
         <div className="list">
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>客服與 FAQ</div>
-              <div className="item-desc">聯絡客服、常見問題</div>
+              <div style={{ fontWeight: 700 }}>常見問題 FAQ</div>
+              <div className="item-desc">查看常見問題</div>
             </div>
             <div className="item-col">
-              <button className="btn" onClick={()=>alert('聊天（示意）')}>聊天</button>
-              <button className="btn" onClick={()=>alert('客服電話（示意）')}>電話</button>
-              <button className="btn" onClick={()=>alert('客服 Email（示意）')}>Email</button>
+              <button className="btn" onClick={()=>alert('查看常見問題')}>查看</button>
+              <button className="btn" onClick={()=>alert('聯絡客服')}>聯絡客服</button>
+              <button className="btn" onClick={()=>alert('發送 Email')}>Email</button>
             </div>
           </div>
           <div className="item">
             <div>
-              <div style={{ fontWeight: 700 }}>法務連結</div>
-              <div className="item-desc">隱私權政策、使用條款、票務規範、退費規則</div>
+              <div style={{ fontWeight: 700 }}>隱私政策</div>
+              <div className="item-desc">查看隱私政策</div>
             </div>
-            <button className="btn" onClick={()=>alert('開啟連結（示意）')}>查看</button>
-          </div>
-          <div className="item">
-            <div className="item-col"><strong>登出</strong></div>
-            <button className="btn btn-orange" onClick={onLogout}>登出</button>
+            <button className="btn" onClick={()=>alert('查看隱私政策')}>查看</button>
           </div>
         </div>
       </section>
+      </>
+      )}
+      {showEditModal && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <div className="card-title"><span>修改{editField === 'email' ? '電子郵件' : editField === 'phone' ? '手機號碼' : '密碼'}</span></div>
+            <div className="card-body">
+              <input
+                className="auth-input"
+                type={editField === 'password' ? 'password' : 'text'}
+                placeholder={`請輸入新${editField === 'email' ? '電子郵件' : editField === 'phone' ? '手機號碼' : '密碼'}`}
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+              />
+              <input
+                className="auth-input"
+                type="text"
+                placeholder="請輸入驗證碼"
+                value={editCode}
+                onChange={e => setEditCode(e.target.value)}
+              />
+              {editError && <div className="auth-error">{editError}</div>}
+              <div className="modal-actions">
+                <button className="btn" type="button" onClick={() => setShowEditModal(false)}>取消</button>
+                <button className="btn btn-blue" type="button" onClick={async () => {
+                  setEditError('')
+                  try {
+                    const body = { code: editCode }
+                    body[editField] = editValue
+                    const resp = await fetch(`/api/users/${user.username}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(body)
+                    })
+                    if (!resp.ok) throw new Error(await resp.text())
+                    setShowEditModal(false)
+                    // 重新取得用戶資料
+                    const userResp = await fetch(`/api/users/${user.username}`)
+                    const userData = await userResp.json()
+                    if (onLogin) onLogin(userData)
+                  } catch (err) {
+                    setEditError(String(err.message || err))
+                  }
+                }}>送出</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+export default ProfilePage
+
+
+
+
 

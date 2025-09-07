@@ -57,3 +57,64 @@ export async function getRouteStops(routeId, direction) {
     }))
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 }
+
+// --- OTP (驗證碼) APIs ---
+export async function otpRequest({ account, purpose = 'login', channel }) {
+  const res = await fetch(`${BASE}/auth/otp/request`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ account, purpose, channel }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data?.detail || `OTP request failed: ${res.status}`)
+  }
+  return data
+}
+
+export async function otpVerify({ account, code, purpose = 'login' }) {
+  const res = await fetch(`${BASE}/auth/otp/verify`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ account, code, purpose }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.detail || `OTP verify failed: ${res.status}`)
+  }
+  return data // { ok, ticket, expires_in }
+}
+
+export async function otpConsume(ticket) {
+  const res = await fetch(`${BASE}/auth/otp/consume?ticket=${encodeURIComponent(ticket)}`, {
+    method: 'POST',
+    headers: { accept: 'application/json' },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.detail || `OTP consume failed: ${res.status}`)
+  }
+  return data // { ok, account, purpose }
+}
+
+// Bind contacts (phone + email). Backend may not exist yet; handle 404 gracefully.
+export async function bindContacts({ username, phone, email }) {
+  try {
+    const res = await fetch(`${BASE}/profile/bind_contacts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ username, phone, email }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.detail || `Bind failed: ${res.status}`)
+    return { ok: true, data }
+  } catch (e) {
+    console.warn('[bindContacts] backend unavailable, falling back to localStorage:', e)
+    try {
+      const key = `hb_contacts_${username || 'user'}`
+      localStorage.setItem(key, JSON.stringify({ phone, email, ts: Date.now() }))
+      return { ok: true, local: true }
+    } catch {}
+    return { ok: false, error: String(e.message || e) }
+  }
+}

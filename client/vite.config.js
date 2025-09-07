@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
+      allowedHosts: true, // 允許外部（如 ngrok）連線
       host: true, // = 0.0.0.0，允許 LAN 存取
       port: 5173,
       proxy: {
