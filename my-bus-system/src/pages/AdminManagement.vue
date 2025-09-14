@@ -464,7 +464,7 @@ async function loadAdminUsers() {
       params.append('status', statusFilter.value)
     }
     
-    const response = await fetch(`http://localhost:8500/api/admin/users?${params}`, {
+    const response = await fetch(`http://localhost:8950/api/admin/users?${params}`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
@@ -487,7 +487,7 @@ async function loadAdminUsers() {
 // 載入角色列表
 async function loadRoles() {
   try {
-    const response = await fetch('http://localhost:8500/api/admin/roles', {
+    const response = await fetch('http://localhost:8950/api/admin/roles', {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
@@ -592,7 +592,7 @@ async function createAdmin() {
   try {
     submitting.value = true
     
-    const response = await fetch('http://localhost:8500/api/admin/users', {
+    const response = await fetch('http://localhost:8950/api/admin/users', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -634,7 +634,7 @@ async function updateAdmin() {
       updateData.password = formData.value.password
     }
     
-    const response = await fetch(`http://localhost:8500/api/admin/users/${editingAdmin.value.admin_id}`, {
+    const response = await fetch(`http://localhost:8950/api/admin/users/${editingAdmin.value.admin_id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -665,7 +665,7 @@ async function confirmDelete() {
   try {
     submitting.value = true
     
-    const response = await fetch(`http://localhost:8500/api/admin/users/${adminToDelete.value.admin_id}`, {
+    const response = await fetch(`http://localhost:8950/api/admin/users/${adminToDelete.value.admin_id}`, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`

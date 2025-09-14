@@ -368,12 +368,9 @@ app = FastAPI()
 def is_allowed_origin(origin: str) -> bool:
     """檢查來源是否被允許"""
     allowed_patterns = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173", 
         "http://192.168.0.",  # 192.168.0.x 網段
-        "http://192.168.1.",  # 192.168.1.x 網段
-        "http://10.0.0.",     # 10.0.0.x 網段
-        ":5173"               # 任何使用 5173 port 的地址
+        ":5678"    
+        ":5173"           # 任何使用 5678 port 的地址
     ]
     
     for pattern in allowed_patterns:
@@ -384,7 +381,7 @@ def is_allowed_origin(origin: str) -> bool:
 # 加入 CORS 設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+):(5173|3000|8080)$",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+):(5678|3000|8080)$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -1859,4 +1856,4 @@ def get_route_stations(
         raise HTTPException(status_code=500, detail=f"獲取站點失敗: {str(e)}")
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8500, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=8950, reload=True)

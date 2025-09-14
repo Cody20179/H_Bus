@@ -2,21 +2,11 @@ import pandas as pd
 import pymysql
 
 Infor = {
-    "host": "10.53.1.3",
-    "user": "root",
-    "port": 7000,
-    "password": "dh9j2(HU#s9h",
-    "database": "bus_system",
-    "table": "IOT_DPM_C530E"
-}
-
-Infor = {
-    'host': '192.168.0.126',
-    'user': 'root',
-    'port': 3307,
-    'password': '109109',
-    'database': 'bus_system',
-    'table': 'IOT_DPM_C530E'
+ 'host': '192.168.0.126',
+ 'user': 'root',
+ 'port': 3307,
+ 'password': '109109',
+ 'database': 'bus_system',
  }
 
 def init(Parameter):

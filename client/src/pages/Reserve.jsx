@@ -56,6 +56,7 @@ function drawRouteWithArrows(L, layer, geojson, theme = 'nav') {
 
 export default function ReservePage({ user, onRequireLogin }) {
   const navigate = useNavigate()
+  const AUTH_BASE = import.meta.env.VITE_AUTH_BASE_URL || '';
   // 未登入：維持原行為
   if (!user) {
     return (
@@ -169,45 +170,37 @@ export default function ReservePage({ user, onRequireLogin }) {
     const ok = window.confirm('確認送出預約？\n送出後將進入審核流程。')
     if (!ok) return
 
-    // 1) Console 顯示選取內容
-    console.log('預約提交：', {
-      from: { id: v.from.id, name: v.from.name, lat: v.from.lat, lng: v.from.lng },
-      to: { id: v.to.id, name: v.to.name, lat: v.to.lat, lng: v.to.lng },
-      when,
-      people: Number(people),
-    })
-
-    // 2) 前端顯示審核提示
     setHint('您的預約正在審核中，審核完畢會另行通知。')
     setLoading(true)
     try {
-      // 3) 顯示路線
       await drawRoute(v.from, v.to)
-      // 4) 呼叫後端建立預約（即使缺少 user.id 也送出，預設 0 以利偵錯）
-      const effectiveUserId = Number(user?.id ?? user?.user_id ?? 0)
-      if (!Number.isFinite(effectiveUserId)) {
-        console.warn('[reserve] user id 缺失，將以 0 送出（請確認登入流程是否回傳 id）')
+      // 取得 user_id（建議從 /me 取得，這裡直接用 user.user_id）
+      const effectiveUserId = user?.user_id || user?.id || 0
+      if (!effectiveUserId) {
+        setError('找不到使用者 ID，請重新登入')
+        return
       }
-      console.log('[reserve] 呼叫 /api/reservations', {
+      // 呼叫 /reservation API（自動判斷 proxy 路徑，支援 VITE_AUTH_BASE_URL）
+      const params = new URLSearchParams({
         user_id: effectiveUserId,
         booking_time: when,
-        booking_number: Number(people),
+        booking_number: String(people),
         booking_start_station_name: v.from.name,
         booking_end_station_name: v.to.name,
       })
-      try {
-        const resp = await createReservation({
-          user_id: effectiveUserId,
-          booking_time: when,
-          booking_number: Number(people),
-          booking_start_station_name: v.from.name,
-          booking_end_station_name: v.to.name,
-        })
-        // 導向「我的預約」，並顯示提示訊息
-        navigate('/profile?tab=reservations', { state: { toast: '已送出預約，等待審核中。' } })
-      } catch (e) {
-        console.warn('建立預約 API 失敗（將僅顯示前端審核提示）', e)
+      // const apiUrl = AUTH_BASE ? `${AUTH_BASE}/reservation` : '/api/reservation';
+      const resp = await fetch(`/api/reservation?${params.toString()}`, {
+        method: 'POST'
+      })
+      const data = await resp.json().catch(()=> ({}))
+      if (!resp.ok || data.status !== 'success') {
+        setError('預約送出失敗，請稍後再試')
+        return
       }
+      // 導向「我的預約」，並顯示提示訊息
+      navigate('/profile?tab=reservations', { state: { toast: '已送出預約，等待審核中。' } })
+    } catch (e) {
+      setError('建立預約 API 失敗，請稍後再試')
     } finally {
       setLoading(false)
     }

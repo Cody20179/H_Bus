@@ -58,45 +58,6 @@ export async function getRouteStops(routeId, direction) {
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 }
 
-// --- OTP (驗證碼) APIs ---
-export async function otpRequest({ account, purpose = 'login', channel }) {
-  const res = await fetch(`${BASE}/auth/otp/request`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ account, purpose, channel }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    throw new Error(data?.detail || `OTP request failed: ${res.status}`)
-  }
-  return data
-}
-
-export async function otpVerify({ account, code, purpose = 'login' }) {
-  const res = await fetch(`${BASE}/auth/otp/verify`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ account, code, purpose }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok || !data?.ok) {
-    throw new Error(data?.detail || `OTP verify failed: ${res.status}`)
-  }
-  return data // { ok, ticket, expires_in }
-}
-
-export async function otpConsume(ticket) {
-  const res = await fetch(`${BASE}/auth/otp/consume?ticket=${encodeURIComponent(ticket)}`, {
-    method: 'POST',
-    headers: { accept: 'application/json' },
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok || !data?.ok) {
-    throw new Error(data?.detail || `OTP consume failed: ${res.status}`)
-  }
-  return data // { ok, account, purpose }
-}
-
 // Bind contacts (phone + email). Backend may not exist yet; handle 404 gracefully.
 export async function bindContacts({ username, phone, email }) {
   try {
@@ -148,24 +109,11 @@ export async function getMyReservations(userId) {
   const res = await fetch(`${BASE}/reservations/my?user_id=${encodeURIComponent(userId)}`, {
     headers: { accept: 'application/json' },
   })
+  const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(`Failed to load reservations: ${res.status}`)
-  const data = await res.json()
-  const rows = Array.isArray(data) ? data : (Array.isArray(data?.reservations) ? data.reservations : [])
-  return rows.map((r) => ({
-    id: r.reservation_id ?? r.id,
-    userId: r.user_id,
-    when: r.booking_time,
-    people: r.booking_number,
-    fromName: r.booking_start_station_name,
-    toName: r.booking_end_station_name,
-    status: r.reservation_status, // 可能是數字或字串
-    review_status: r.review_status,
-    dispatch_status: r.dispatch_status,
-    payment_status: r.payment_status,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    _raw: r,
-  }))
+  // 後端目前回傳 { status, sql }；其中 sql 才是資料列陣列
+  const rows = Array.isArray(data?.sql) ? data.sql : (Array.isArray(data) ? data : [])
+  return rows
 }
 
 export async function cancelReservation({ reservationId }) {

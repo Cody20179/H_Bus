@@ -433,3 +433,58 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .status-chip.secondary { background:#f1f5f9; color:#334155; border-color:#e2e8f0; }
 .resv-actions { display:flex; flex-direction:column; gap:8px; justify-content:center; }
 .resv-actions .btn { min-width:96px; }
+
+.auth-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%);
+}
+
+.auth-card {
+  background: white;
+  padding: 40px 30px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  text-align: center;
+  width: 320px;
+}
+
+.auth-title {
+  font-size: 22px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  color: #222;
+}
+
+.auth-subtitle {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 20px;
+}
+
+.line-login-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #06c755; /* LINE 綠 */
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  padding: 12px 18px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  width: 100%;
+}
+
+.line-login-button:hover {
+  background: #05b34f;
+}
+
+.line-icon {
+  height: 24px;
+  margin-right: 8px;
+}

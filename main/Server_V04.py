@@ -1663,4 +1663,4 @@ def reservations_my_noapi(user_id: int):
     return reservations_my(user_id)
 
 if __name__ == "__main__":
-    uvicorn.run("Server_V04:app", host="0.0.0.0", port=8500, reload=True)
+    uvicorn.run("Server_V04:app", host="0.0.0.0", port=8501, reload=True)
