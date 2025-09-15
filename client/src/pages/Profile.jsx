@@ -10,6 +10,7 @@ function ProfilePage({ user, onLogin, onLogout }) {
   const [showVerify, setShowVerify] = useState(false)
   const [sessionUser, setSessionUser] = useState(null)
   const [sessionLoading, setSessionLoading] = useState(true)
+  const [unauthorized, setUnauthorized] = useState(false)
   const [myResv, setMyResv] = useState([])
   const [resvLoading, setResvLoading] = useState(false)
   const [resvErr, setResvErr] = useState('')
@@ -17,13 +18,13 @@ function ProfilePage({ user, onLogin, onLogout }) {
   const [cooldown, setCooldown] = useState(0)
   const resvRef = useRef(null)
   const AUTH_BASE = import.meta.env.VITE_AUTH_BASE_URL;
-
+  console.log('AUTH_BASE =', import.meta.env.VITE_AUTH_BASE_URL);
   // 檢查 session 狀態，決定是否顯示登入介面
   useEffect(() => {
     async function checkSession() {
       setSessionLoading(true)
       try {
-        const resp = await fetch(`${AUTH_BASE}/me`, { credentials: 'include' });
+        const resp = await fetch(`/me`, { credentials: 'include' });
         if (!resp.ok) throw new Error('未登入')
         const data = await resp.json()
         if (data && data.user_id) {
@@ -34,12 +35,20 @@ function ProfilePage({ user, onLogin, onLogout }) {
         }
       } catch {
         setSessionUser(null)
+        setUnauthorized(true)
       } finally {
         setSessionLoading(false)
       }
     }
     checkSession()
   }, [])
+
+  // 當確認為未登入（/me 回 401 或錯誤）時，通知父層清空使用者狀態
+  useEffect(() => {
+    if (unauthorized) {
+      try { if (onLogout) onLogout() } catch {}
+    }
+  }, [unauthorized])
 
   // 預約列表載入
   useEffect(() => {
@@ -71,7 +80,7 @@ function ProfilePage({ user, onLogin, onLogout }) {
 
   // 登出功能
   const handleLogout = () => {
-    window.location.href = `${AUTH_BASE}/logout`;
+    window.location.href = `/logout`;
   };
 
   // 推播測試
@@ -111,6 +120,12 @@ function ProfilePage({ user, onLogin, onLogout }) {
   if (sessionUser && sessionUser.user_id) {
     user = sessionUser
   }
+  if (sessionUser === null) {
+    user = null
+  }
+  if (unauthorized) {
+    user = null
+  }
   if (!user) {
     return (
       <div className="auth-wrapper">
@@ -118,7 +133,8 @@ function ProfilePage({ user, onLogin, onLogout }) {
           <h2 className="auth-title">歡迎回來</h2>
           <p className="auth-subtitle">請使用 LINE 登入以繼續</p>
           <button className="line-login-button" onClick={() => {
-            window.location.href = `${AUTH_BASE}/auth/line/login`
+            const ret = `${window.location.origin}/profile`
+            window.location.href = `/auth/line/login?return_to=${encodeURIComponent(ret)}`
           }}>
             <img src="https://scdn.line-apps.com/n/line_reg_v2_oauth/img/naver/btn_login_base.png" alt="LINE Login" className="line-icon" />
             使用 LINE 登入

@@ -1,6 +1,7 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from typing import List
 from datetime import datetime
 from urllib.parse import urlparse
@@ -9,6 +10,9 @@ from MySQL import MySQL_Run
 import pandas as pd
 import secrets, hashlib, urllib.parse, base64, json, time, hmac, os, redis, httpx
 import Define
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+api = APIRouter(prefix='/api')
 
 load_dotenv()
 app = FastAPI(
@@ -20,22 +24,25 @@ app = FastAPI(
 # 加入 CORS 設定
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+):(5173|3000|8080)$",
+    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.ngrok-free\.app|localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|140\.134\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
+# app.mount("/", StaticFiles(directory="dist", html=True), name="client")
+# api_router = APIRouter(prefix="/api")
+
 # === Redis 初始化 ===
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-BASE_URL = "https://3f918fa9866f.ngrok-free.app"
-Front_End_Route = "http://192.168.0.126:5173/profile"
+BASE_URL = "https://85b1115c2522.ngrok-free.app"
+# 允許由環境變數覆蓋預設前端導向網址，並確保為絕對 URL（含協定）
+FRONTEND_DEFAULT_URL = os.getenv("FRONTEND_DEFAULT_URL", "http://192.168.0.126:5173/profile")
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
 # === LINE 設定 ===
 CHANNEL_ID = os.getenv("LINE_CHANNEL_ID")
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-BASE_URL = "https://3f918fa9866f.ngrok-free.app"
 CALLBACK_PATH = "/auth/line/callback"
 AUTHORIZE_URL = "https://access.line.me/oauth2/v2.1/authorize"
 TOKEN_URL = "https://api.line.me/oauth2/v2.1/token"
@@ -114,29 +121,79 @@ class LineAuth:
 def _is_safe_return_to(url: str) -> bool:
     try:
         parsed = urlparse(url)
-        allowed_origins = [
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",
-        ]
-        origin = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}" if parsed.port else f"{parsed.scheme}://{parsed.hostname}"
-        return origin in allowed_origins
+        if parsed.scheme not in ("http", "https"):
+            return False
+        host = parsed.hostname or ""
+        # 允許本機/內網
+        if host in ("localhost", "127.0.0.1") or host.startswith("192.168.") or host.startswith("10."):
+            return True
+        # 允許 ngrok
+        if host.endswith(".ngrok-free.app"):
+            return True
+        # 允許環境變數清單
+        allowed_env = os.getenv("ALLOWED_RETURN_ORIGINS", "")
+        if allowed_env:
+            allowed_list = [o.strip() for o in allowed_env.split(",") if o.strip()]
+            origin = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}" if parsed.port else f"{parsed.scheme}://{parsed.hostname}"
+            if origin in allowed_list:
+                return True
+        return False
     except Exception:
         return False
+
+def _default_frontend_url(request: Request, path: str = "/profile") -> str:
+    """推導登入後預設導向網址：優先用請求 Origin（若安全），否則使用環境變數。"""
+    try:
+        origin = request.headers.get("origin")
+        if origin:
+            candidate = f"{origin.rstrip('/')}{path}"
+            if _is_safe_return_to(candidate):
+                return candidate
+    except Exception:
+        pass
+    # 確保回傳為絕對 URL；若環境變數遺漏協定則補上 http://
+    if FRONTEND_DEFAULT_URL.startswith("http://") or FRONTEND_DEFAULT_URL.startswith("https://"):
+        return FRONTEND_DEFAULT_URL
+    return f"http://{FRONTEND_DEFAULT_URL.lstrip('/') }"
+
+def _build_login_url(request: Request, return_to: str | None = None) -> str:
+    """組出 LINE Login 的登入 URL，並帶上 return_to。"""
+    try:
+        rt = return_to or _default_frontend_url(request)
+        q = urllib.parse.urlencode({"return_to": rt})
+        return f"{BASE_URL}/auth/line/login?{q}"
+    except Exception:
+        return f"{BASE_URL}/auth/line/login"
+
+def _unauthorized_response(request: Request, detail: str):
+    """依請求型態決定回傳 302 導轉或 401 JSON，避免僅在前端顯示而無指引。"""
+    login_url = _build_login_url(request)
+    accept = (request.headers.get("accept") or "").lower()
+    sec_mode = (request.headers.get("sec-fetch-mode") or "").lower()
+    sec_dest = (request.headers.get("sec-fetch-dest") or "").lower()
+    wants_html = ("text/html" in accept) and ("application/json" not in accept)
+    is_navigation = (sec_mode == "navigate") or (sec_dest in {"document", "iframe"})
+
+    if wants_html or is_navigation:
+        # 瀏覽器直接導向登入頁
+        return RedirectResponse(login_url, status_code=302)
+    # API/fetch：回 401 並附上登入入口，讓前端可決定導向
+    raise HTTPException(status_code=401, detail={"detail": detail, "login_url": login_url})
     
 """
 For App Client
 """
-@app.get("/", tags=["meta"], summary="根路由")
-def read_root():
-    """根路由，返回簡單的歡迎信息"""
-    return {"hello": "world"}
+# @app.get("/", tags=["meta"], summary="根路由")
+# def read_root():
+#     """根路由，返回簡單的歡迎信息"""
+#     return {"hello": "world"}
 
 @app.get("/healthz", tags=["meta"], summary="健康檢查")
 def healthz():
     """用於監控或負載平衡器的健康檢查端點"""
     return {"status": "error 404"}
 
-@app.get("/All_Route", tags=["Client"], summary="所有路線")
+@api.get("/All_Route", tags=["Client"], summary="所有路線")
 def All_Route():
     rows = MySQL_Run("SELECT * FROM bus_routes_total")
     columns = [c['Field'] for c in MySQL_Run("SHOW COLUMNS FROM bus_routes_total")]
@@ -147,7 +204,7 @@ def All_Route():
     records = df.where(pd.notnull(df), None).to_dict(orient="records")
     return records
 
-@app.post("/Route_Stations", response_model=List[Define.StationOut], tags=["Client"], summary="所有站點")
+@api.post("/Route_Stations", response_model=List[Define.StationOut], tags=["Client"], summary="所有站點")
 def get_route_stations(q: Define.RouteStationsQuery):
     # --- 參數化查詢（你的 MySQL_Run 若支援 params，優先這個寫法） ---
     sql = "SELECT * FROM bus_route_stations WHERE route_id = %s"
@@ -222,14 +279,14 @@ def get_route_stations(q: Define.RouteStationsQuery):
     data: List[Define.StationOut] = [Define.StationOut(**r) for r in records]
     return data
 
-@app.get("/yo_hualien", tags=["Client"], summary="行動遊花蓮")
+@api.get("/yo_hualien", tags=["Client"], summary="行動遊花蓮")
 def yo_hualien():
     rows = MySQL_Run("SELECT station_name, address, latitude, longitude FROM action_tour_hualien")
     columns = ["station_name", "address", "latitude", "longitude"]
     df = pd.DataFrame(rows, columns=columns)
     return df.to_dict(orient="records") 
 
-@app.post("/reservation", tags=["Client"], summary="送出預約")
+@api.post("/reservation", tags=["Client"], summary="送出預約")
 def push_reservation(
     user_id: str,
     booking_time: datetime,
@@ -252,7 +309,7 @@ def push_reservation(
     MySQL_Run(sql)
     return {"status": "success", "sql": sql}
 
-@app.get("/reservations/my", tags=["Client"], summary="預約查詢")
+@api.get("/reservations/my", tags=["Client"], summary="預約查詢")
 def show_reservations(user_id: str):
     sql = f"""
     SELECT user_id, booking_time, booking_number, 
@@ -269,28 +326,41 @@ For Line Login API
 """
 @app.get("/auth/line/login")
 def login(request: Request):
+    force = request.query_params.get("force")
     uid = SessionManager.verify_session_token(request.cookies.get("app_session"))
-    return_to = request.query_params.get("return_to")
-    if uid and r.exists(f"user:{uid}"):
-        if return_to and _is_safe_return_to(return_to):
-            return RedirectResponse(return_to)
-        return RedirectResponse("/dashboard")
+    q_return_to = request.query_params.get("return_to")
+
+    if q_return_to and _is_safe_return_to(q_return_to):
+        resolved_return_to = q_return_to
+    else:
+        resolved_return_to = _default_frontend_url(request)
+
+    # 防呆：如果 Redis 有但 MySQL 查不到 → 視為無效 session
+    if not force and uid and r.exists(f"user:{uid}"):
+        db_check = MySQL_Run(f"SELECT 1 FROM users WHERE line_id='{uid}' LIMIT 1;")
+        if db_check:
+            return RedirectResponse(resolved_return_to)
+        else:
+            print(f"[WARN] Redis 有 session，但 MySQL 查不到 user={uid}，強制重登")
+            r.delete(f"user:{uid}")  # 清理 Redis
+            # 不 return，繼續往下走 LINE OAuth
+
+    # 強制走 LINE OAuth
     state = secrets.token_urlsafe(16)
     verifier = secrets.token_urlsafe(64)
     challenge = SessionManager.b64url(hashlib.sha256(verifier.encode()).digest())
-    r.setex(f"login_state:{state}", 300, json.dumps({"verifier": verifier, "return_to": return_to}))
+    r.setex(f"login_state:{state}", 300, json.dumps({"verifier": verifier, "return_to": resolved_return_to}))
     url = LineAuth.get_login_url(state, challenge)
     return RedirectResponse(url)
 
 @app.get("/logout")
-def logout():
-    resp = RedirectResponse(Front_End_Route)
+def logout(request: Request):
+    resp = RedirectResponse(_default_frontend_url(request))
     resp.delete_cookie("app_session")
     return resp
 
 @app.get("/auth/line/callback")
 async def callback(request: Request, code: str | None = None, state: str | None = None):
-    
     data = r.get(f"login_state:{state}")
     if not code or not state or not data:
         raise HTTPException(400, "Invalid state or code")
@@ -333,7 +403,7 @@ async def callback(request: Request, code: str | None = None, state: str | None 
 
     # ===== 5. 設定 Cookie 並跳轉到前端 =====
     # 固定跳轉到前端 Profile 頁
-    redirect_url = "http://127.0.0.1:5173/profile"
+    redirect_url = _default_frontend_url(request)
     if return_to and _is_safe_return_to(return_to):
         redirect_url = return_to
 
@@ -348,22 +418,57 @@ async def callback(request: Request, code: str | None = None, state: str | None 
 async def me(request: Request):
     app_token = request.cookies.get("app_session")
     if not app_token:
-        raise HTTPException(401, "not logged in")
+        return _unauthorized_response(request, "not logged in")
 
-    # 查 MySQL (session_token → 使用者)
-    result = MySQL_Run(f"SELECT user_id, line_id, username, email, phone, last_login FROM users WHERE session_token = '{app_token}' LIMIT 1;")
+    result = MySQL_Run(f"""
+        SELECT user_id, line_id, username, email, phone, last_login
+        FROM users
+        WHERE session_token = '{app_token}'
+        LIMIT 1;
+    """)
+
     if not result:
-        raise HTTPException(401, "session not found")
+        # 防呆：自動清理 Redis 裡壞掉的 session
+        uid = SessionManager.verify_session_token(app_token)
+        if uid:
+            r.delete(f"user:{uid}")
+            r.delete(f"session:{app_token}")
+            print(f"[CLEANUP] 清掉無效 session: user={uid}")
+        return _unauthorized_response(request, "session not found")
 
-    user = result[0]
+    row = result[0]
     return {
-        "user_id": user["user_id"],
-        "line_id": user["line_id"],
-        "username": user["username"],
-        "email": user.get("email", ""),
-        "phone": user.get("phone", ""),
-        "last_login": user["last_login"],
+        "user_id": row["user_id"],
+        "line_id": row["line_id"],
+        "username": row["username"],
+        "email": row["email"],
+        "phone": row["phone"],
+        "last_login": row["last_login"],
     }
+
+app.include_router(api)
+app.mount('/', StaticFiles(directory='dist', html=True), name='client')
+
+# SPA deep-link fallback: serve index.html for unknown HTML routes (exclude API/auth)
+@app.exception_handler(StarletteHTTPException)
+async def spa_fallback(request: Request, exc: StarletteHTTPException):
+    try:
+        if exc.status_code == 404 and request.method in ("GET", "HEAD"):
+            path = request.url.path or "/"
+            accept = (request.headers.get("accept") or "").lower()
+            # only for browser navigations to non-API paths
+            if (
+                not path.startswith("/api")
+                and not path.startswith("/auth")
+                and ("text/html" in accept or accept == "*/*")
+            ):
+                index_path = os.path.join("dist", "index.html")
+                if os.path.exists(index_path):
+                    return FileResponse(index_path)
+    except Exception:
+        pass
+    # default behavior
+    raise exc
 
 # if __name__ == "__main__":
 #     uvicorn Server:app --host 0.0.0.0 --port 8500 --reload

@@ -1,7 +1,8 @@
 // Centralized API client for the frontend.
-// Uses Vite dev server proxy: requests to `/api` are proxied to your backend.
-
-const BASE = '/api'
+// Dev: use Vite proxy with path `/api`.
+// Prod (same-origin deploy): default to '' unless VITE_API_BASE_URL is set.
+const envBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || ''
+const BASE = (envBase?.trim?.() || (import.meta.env?.DEV ? '/api' : ''))
 
 export async function getRoutes() {
   const res = await fetch(`${BASE}/All_Route`, {
