@@ -183,3 +183,46 @@ API 失敗回退（`Routes.jsx`）：
 - MySQL 工具：`Github/H_Bus/Backend/MySQL.py`
 - 前端 API 封裝：`Github/H_Bus/client/src/services/api.js`
 - 前端 Vite 代理：`Github/H_Bus/client/vite.config.js`
+
+Redis / Memurai 啟動方式
+
+在 Windows 環境中，建議使用 Memurai 作為 Redis 的替代方案，請先確認服務已經啟動。
+
+可以在 services.msc 中找到 Memurai 服務，若尚未啟動可手動按 Start，或在 PowerShell 輸入：
+
+net start memurai
+
+
+Memurai 預設會安裝 memurai-cli.exe（路徑通常在 C:\Program Files\Memurai\bin），可執行：
+
+memurai-cli.exe ping
+
+
+若回應 PONG，即表示服務運作正常。
+
+啟動整體系統的步驟
+
+啟動 Memurai（確認已登入並啟動）。
+
+進入 Backend/ 目錄，啟動後端服務：
+
+uvicorn Server:app --host 0.0.0.0 --port 8500 --reload
+
+
+進入 client/ 目錄，先執行：
+
+npm install
+
+
+然後啟動前端開發伺服器：
+
+npm run dev
+
+
+確認 .env.development、.env.production 或其他 .env.* 檔案內，已正確設定以下環境變數：
+
+VITE_API_BASE_URL
+
+VITE_AUTH_BASE_URL
+
+最後開啟瀏覽器，進入 http://localhost:5173，即可存取前端開發環境。

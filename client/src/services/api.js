@@ -11,23 +11,26 @@ export async function getRoutes() {
   if (!res.ok) {
     throw new Error(`Failed to load routes: ${res.status}`)
   }
-  /** @type {Array} */
+
   const data = await res.json()
-  // Normalize the shape to what UI expects
-  return data.map((r) => ({
-    id: r.route_id,
-    name: r.route_name,
-    direction: r.direction || '',
-    stopCount: r.stop_count ?? null,
-    startStop: r.start_stop ?? '',
-    endStop: r.end_stop ?? '',
-    status: r.status,
-    createdAt: r.created_at,
-    source: 'api',
-    key: `${r.route_name} ${r.direction || ''}`.trim(),
-    _raw: r,
-  }))
+
+  return data
+    .filter((r) => r.status !== 0) // 把 status 為 0 的項目剔除
+    .map((r) => ({
+      id: r.route_id,
+      name: r.route_name,
+      direction: r.direction || '',
+      stopCount: r.stop_count ?? null,
+      startStop: r.start_stop ?? '',
+      endStop: r.end_stop ?? '',
+      status: r.status,
+      createdAt: r.created_at,
+      source: 'api',
+      key: `${r.route_name} ${r.direction || ''}`.trim(),
+      _raw: r,
+    }))
 }
+
 
 export async function getRouteStops(routeId, direction) {
   // Backend expects JSON body: { route_id, direction }

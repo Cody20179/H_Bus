@@ -1,8 +1,7 @@
-﻿import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getStations, createReservation } from '../services/api'
+import { getStations } from '../services/api'
 
-// 從 Planner.jsx 照抄的：動態載入 Leaflet 與 polyline decorator
 async function ensureLeafletLoaded() {
   if (window.L) return window.L
   const mod = await import('leaflet')
@@ -17,12 +16,9 @@ async function ensurePolylineDecorator() {
   return true
 }
 
-// OSRM 單段路徑（兩點）
 async function osrmRouteBetween(a, b) {
-  // a/b = [lat, lng]
   const coords = `${a[1]},${a[0]};${b[1]},${b[0]}`
-  const url = `https://router.project-osrm.org/route/v1/driving/${coords}` +
-              `?overview=full&geometries=geojson&steps=false&continue_straight=true`
+  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
   const r = await fetch(url)
   if (!r.ok) throw new Error('OSRM fail')
   const j = await r.json()
@@ -30,23 +26,16 @@ async function osrmRouteBetween(a, b) {
   return j.routes[0]
 }
 
-// 畫主要路線＋箭頭樣式（與 Planner.jsx 一致）
-function drawRouteWithArrows(L, layer, geojson, theme = 'nav') {
-  const themes = {
-    nav: { casing: '#ffffff', stroke: '#2563eb' },
-    green: { casing: '#ffffff', stroke: '#10b981' },
-    night: { casing: '#0b0b10', stroke: '#ffd166' },
-    dashed: { casing: '#ffffff', stroke: '#6366f1', dashArray: '8 8' },
-  }
-  const t = themes[theme] || themes.nav
-  L.geoJSON(geojson, { style: { color: t.casing, weight: 12, opacity: 1, lineCap: 'round', lineJoin: 'round' } }).addTo(layer)
-  const stroke = L.geoJSON(geojson, { style: { color: t.stroke, weight: 7, opacity: .98, lineCap: 'round', lineJoin: 'round', dashArray: t.dashArray } }).addTo(layer)
+function drawRouteWithArrows(L, layer, geojson) {
+  const stroke = L.geoJSON(geojson, {
+    style: { color: '#2563eb', weight: 7, opacity: .98, lineCap: 'round', lineJoin: 'round' }
+  }).addTo(layer)
   try {
     if (L.polylineDecorator) {
       const poly = stroke.getLayers()[0]
       if (poly) {
         L.polylineDecorator(poly, {
-          patterns: [{ offset: 0, repeat: '48px', symbol: L.Symbol.arrowHead({ pixelSize: 11, pathOptions: { color: t.stroke, weight: 6, opacity: 0.95 } }) }]
+          patterns: [{ offset: 0, repeat: '48px', symbol: L.Symbol.arrowHead({ pixelSize: 11, pathOptions: { color: '#2563eb', weight: 6, opacity: 0.95 } }) }]
         }).addTo(layer)
       }
     }
@@ -54,40 +43,50 @@ function drawRouteWithArrows(L, layer, geojson, theme = 'nav') {
   return stroke
 }
 
+// 工具：產生五分鐘間隔時間
+function generateTimeOptions() {
+  const options = []
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 5) {
+      const hh = String(h).padStart(2, '0')
+      const mm = String(m).padStart(2, '0')
+      options.push(`${hh}:${mm}`)
+    }
+  }
+  return options
+}
+
+function getEarliestDate() {
+  const d = new Date()
+  d.setDate(d.getDate() + 1) // 從明天開始
+  return d
+}
+
+function getLatestDate() {
+  const d = new Date()
+  d.setMonth(d.getMonth() + 1) // 一個月後
+  return d
+}
+
 export default function ReservePage({ user, onRequireLogin }) {
   const navigate = useNavigate()
-  const AUTH_BASE = import.meta.env.VITE_AUTH_BASE_URL || '';
-  // 未登入：維持原行為
-  if (!user) {
-    return (
-      <div className="container">
-        <section className="card">
-          <div className="card-title"><span>預約服務</span></div>
-          <div className="card-body">
-            <div className="muted" style={{ marginBottom: 12 }}>尚未登入，無法使用預約功能。</div>
-            <button className="btn btn-blue" onClick={onRequireLogin}>前往登入</button>
-          </div>
-        </section>
-      </div>
-    )
-  }
-
-  // 站點/表單狀態
   const [stations, setStations] = useState([])
   const [fromId, setFromId] = useState('')
   const [toId, setToId] = useState('')
+  const [whenDate, setWhenDate] = useState('')
+  const [whenTime, setWhenTime] = useState('')
   const [when, setWhen] = useState('')
   const [people, setPeople] = useState(1)
   const [hint, setHint] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const isLoggedIn = Boolean(user)
 
-  // 地圖
   const mapEl = useRef(null)
   const mapRef = useRef(null)
   const routeLayerRef = useRef(null)
 
-  // 載入站點清單
+  // 載入站點 API
   useEffect(() => {
     let cancelled = false
     getStations().then((rows) => {
@@ -96,15 +95,14 @@ export default function ReservePage({ user, onRequireLogin }) {
     return () => { cancelled = true }
   }, [])
 
-  // 初始化地圖（與 Planner.jsx 一致的底圖）
+  // Leaflet 地圖初始化
   useEffect(() => {
     let destroyed = false
     ensureLeafletLoaded().then((L) => {
-      if (destroyed) return
+      if (destroyed || !mapEl.current) return
       const map = L.map(mapEl.current, { center: [23.99302, 121.603219], zoom: 14 })
       mapRef.current = map
-      L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}', { tileSize: 256, attribution: 'Leaflet | © NLSC WMTS | © OpenStreetMap' }).addTo(map)
-      L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP2/default/GoogleMapsCompatible/{z}/{y}/{x}', { tileSize: 256, opacity: .9 }).addTo(map)
+      L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}', { tileSize: 256 }).addTo(map)
       routeLayerRef.current = L.layerGroup().addTo(map)
     })
     return () => {
@@ -116,34 +114,39 @@ export default function ReservePage({ user, onRequireLogin }) {
     }
   }, [])
 
+  // 日期+時間組合成完整 datetime
+  useEffect(() => {
+    if (whenDate && whenTime) {
+      setWhen(`${whenDate}T${whenTime}:00`)
+    }
+  }, [whenDate, whenTime])
+
   async function drawRoute(from, to) {
     if (!mapRef.current || !routeLayerRef.current) return
     const L = window.L
-    const map = mapRef.current
     const layer = routeLayerRef.current
     layer.clearLayers()
     try {
       await ensurePolylineDecorator()
       const result = await osrmRouteBetween([from.lat, from.lng], [to.lat, to.lng])
       if (result && result.geometry) {
-        const stroke = drawRouteWithArrows(L, layer, result.geometry, 'nav')
-        map.fitBounds(stroke.getBounds(), { padding: [30, 30], animate: false })
+        const stroke = drawRouteWithArrows(L, layer, result.geometry)
+        mapRef.current.fitBounds(stroke.getBounds(), { padding: [30, 30], animate: false })
         return
       }
     } catch (e) {
-      console.warn('OSRM 路線失敗，改用直線備援', e)
+      console.warn('OSRM 繪製失敗，改用直線', e)
     }
-    // 備援：直線
-    const poly = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], { color: '#94a3b8', weight: 4, opacity: 0.85, dashArray: '6 8' }).addTo(layer)
-    map.fitBounds(poly.getBounds(), { padding: [30, 30], animate: false })
+    const poly = L.polyline([[from.lat, from.lng], [to.lat, to.lng]], { color: '#94a3b8', weight: 4, opacity: 0.85 }).addTo(layer)
+    mapRef.current.fitBounds(poly.getBounds(), { padding: [30, 30], animate: false })
   }
 
   function validateSelection() {
     setError('')
     const from = stations.find((s) => String(s.id) === String(fromId))
     const to = stations.find((s) => String(s.id) === String(toId))
-    if (!from || !to) { setError('請選擇出發與目的地'); return null }
-    if (String(fromId) === String(toId)) { setError('請選擇不同點位'); return null }
+    if (!from || !to) { setError('請選擇出發與到達站'); return null }
+    if (String(fromId) === String(toId)) { setError('出發與到達站不能相同'); return null }
     return { from, to }
   }
 
@@ -151,7 +154,6 @@ export default function ReservePage({ user, onRequireLogin }) {
     e.preventDefault()
     const v = validateSelection()
     if (!v) return
-    setHint('')
     setLoading(true)
     try {
       await drawRoute(v.from, v.to)
@@ -164,82 +166,110 @@ export default function ReservePage({ user, onRequireLogin }) {
     e.preventDefault()
     const v = validateSelection()
     if (!v) return
-    if (!when || !people) { setError('請填寫預約時間與人數'); return }
 
-    // 確認送出
-    const ok = window.confirm('確認送出預約？\n送出後將進入審核流程。')
-    if (!ok) return
-
-    setHint('您的預約正在審核中，審核完畢會另行通知。')
-    setLoading(true)
-    try {
-      await drawRoute(v.from, v.to)
-      // 取得 user_id（建議從 /me 取得，這裡直接用 user.user_id）
-      const effectiveUserId = user?.user_id || user?.id || 0
-      if (!effectiveUserId) {
-        setError('找不到使用者 ID，請重新登入')
-        return
-      }
-      // 呼叫 /reservation API（自動判斷 proxy 路徑，支援 VITE_AUTH_BASE_URL）
-      const params = new URLSearchParams({
-        user_id: effectiveUserId,
-        booking_time: when,
-        booking_number: String(people),
-        booking_start_station_name: v.from.name,
-        booking_end_station_name: v.to.name,
-      })
-      // const apiUrl = AUTH_BASE ? `${AUTH_BASE}/reservation` : '/api/reservation';
-      const resp = await fetch(`/api/reservation?${params.toString()}`, {
-        method: 'POST'
-      })
-      const data = await resp.json().catch(()=> ({}))
-      if (!resp.ok || data.status !== 'success') {
-        setError('預約送出失敗，請稍後再試')
-        return
-      }
-      // 導向「我的預約」，並顯示提示訊息
-      navigate('/profile?tab=reservations', { state: { toast: '已送出預約，等待審核中。' } })
-    } catch (e) {
-      setError('建立預約 API 失敗，請稍後再試')
-    } finally {
-      setLoading(false)
+    const check = validateReservationDateTime(whenDate, whenTime)
+    if (!check.ok) {
+      setError(check.msg)
+      return
     }
+
+    if (!people) { setError('請選擇人數'); return }
+
+    alert('送出成功！（這裡串接 reservation API）')
+    navigate('/profile?tab=reservations', { state: { toast: '預約成功，等待審核。' } })
+  }
+
+
+  function validateReservationDateTime(dateStr, timeStr) {
+  if (!dateStr || !timeStr) return { ok: false, msg: "請選擇日期與時間" }
+
+  const selected = new Date(`${dateStr}T${timeStr}:00`)
+
+  const earliest = getEarliestDate()
+  const latest = getLatestDate()
+
+  if (selected < earliest || selected > latest) {
+    return { ok: false, msg: "預約日期必須在明天到一個月內" }
+  }
+
+  // 檢查「前一天 17:00 截止」
+  const deadline = new Date(selected)
+  deadline.setDate(deadline.getDate() - 1)
+  deadline.setHours(17, 0, 0, 0)
+
+  const now = new Date()
+  if (now > deadline) {
+    return { ok: false, msg: "必須在前一天下午五點前完成預約" }
+  }
+
+  return { ok: true }
+}
+
+
+  if (!isLoggedIn) {
+    return (
+      <div className="container">
+        <section className="card">
+          <div className="card-title"><span>預約系統</span></div>
+          <div className="card-body">
+            <div className="muted">請先登入才能使用預約功能。</div>
+            <button className="btn btn-blue" onClick={onRequireLogin}>立即登入</button>
+          </div>
+        </section>
+      </div>
+    )
   }
 
   return (
     <div className="container">
       <section className="card">
-        <div className="card-title"><span>預約服務</span></div>
+        <div className="card-title"><span>預約系統</span></div>
         <div className="card-body">
           <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
             <div>
               <div className="muted small">站點 1（出發）</div>
-              <select className="search-field" value={fromId} onChange={(e) => { setFromId(e.target.value); setHint('') }}>
+              <select className="search-field" value={fromId} onChange={(e) => setFromId(e.target.value)}>
                 <option value="">請選擇</option>
                 {stations.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div>
-              <div className="muted small">站點 2（目的）</div>
-              <select className="search-field" value={toId} onChange={(e) => { setToId(e.target.value); setHint('') }}>
+              <div className="muted small">站點 2（到達）</div>
+              <select className="search-field" value={toId} onChange={(e) => setToId(e.target.value)}>
                 <option value="">請選擇</option>
                 {stations.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
+            </div>
+            <div>
+              <div className="muted small">預約日期</div>
+              <input
+                type="date"
+                className="search-field"
+                value={whenDate}
+                min={getEarliestDate().toISOString().split("T")[0]}
+                max={getLatestDate().toISOString().split("T")[0]}
+                onChange={(e) => setWhenDate(e.target.value)}
+              />
             </div>
             <div>
               <div className="muted small">預約時間</div>
-              <input type="datetime-local" className="search-field" value={when} onChange={(e) => { setWhen(e.target.value); setHint('') }} />
+              <select className="search-field" value={whenTime} onChange={(e) => setWhenTime(e.target.value)}>
+                <option value="">請選擇</option>
+                {generateTimeOptions().map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
             <div>
               <div className="muted small">人數</div>
-              <input type="number" min={1} className="search-field" value={people} onChange={(e) => { setPeople(e.target.value); setHint('') }} />
+              <select className="search-field" value={people} onChange={(e) => setPeople(e.target.value)}>
+                {[1,2,3,4].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
               <button className="btn" onClick={handleViewRoute} disabled={loading}>
-                {loading ? '處理中…' : '查看路線'}
+                {loading ? '處理中' : '查看路線'}
               </button>
-              <button className="btn btn-orange" type="submit" disabled={loading || !fromId || !toId || !when || !people}>
-                {loading ? '處理中…' : '送出預約'}
+              <button className="btn btn-orange" type="submit" disabled={loading || !fromId || !toId || !when}>
+                {loading ? '處理中' : '送出預約'}
               </button>
               {error && <span className="small" style={{ color: '#c0392b' }}>{error}</span>}
               {hint && <span className="muted">{hint}</span>}
@@ -249,8 +279,8 @@ export default function ReservePage({ user, onRequireLogin }) {
       </section>
 
       <section className="card">
-        <div className="card-title"><span>地圖</span><small>顯示您選取的路線</small></div>
-        <div ref={mapEl} style={{ height: '60vh', width: '100%', borderRadius: 12, overflow: 'hidden' }} />
+        <div className="card-title"><span>地圖</span><small>顯示您的路線</small></div>
+        <div ref={mapEl} style={{ height: '60vh', width: '100%', borderRadius: 12 }} />
       </section>
     </div>
   )
