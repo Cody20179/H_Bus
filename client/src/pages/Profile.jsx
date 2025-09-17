@@ -17,8 +17,61 @@ function ProfilePage({ user, onLogin, onLogout }) {
   const [toastMsg, setToastMsg] = useState('')
   const [cooldown, setCooldown] = useState(0)
   const resvRef = useRef(null)
+  const [contactField, setContactField] = useState(null)
+  const [contactValue, setContactValue] = useState('')
+  const [contactError, setContactError] = useState('')
+  const [contactSaving, setContactSaving] = useState(false)
+  const [showMoreTrips, setShowMoreTrips] = useState(false)
+  const validReservations = myResv.filter(r =>
+    !(String(r.review_status||'').toLowerCase().includes('reject') ||
+      String(r.payment_status||'').toLowerCase().includes('fail'))
+  )
+
+  const failedReservations = myResv.filter(r =>
+    String(r.review_status||'').toLowerCase().includes('reject') ||
+    String(r.payment_status||'').toLowerCase().includes('fail')
+  )
   const AUTH_BASE = import.meta.env.VITE_AUTH_BASE_URL;
   console.log('AUTH_BASE =', import.meta.env.VITE_AUTH_BASE_URL);
+  
+  useEffect(() => {
+    if (import.meta.env.MODE === 'production') return
+    const helper = async (passcode, overrides = {}) => {
+      if (passcode !== 'Lab@109**') {
+        console.warn('[H_Bus] 測試密碼錯誤')
+        return false
+      }
+      const nowIso = new Date().toISOString()
+      const fakeUser = {
+        user_id: overrides.user_id ?? -999,
+        line_id: overrides.line_id ?? 'lab-tester',
+        username: overrides.username ?? 'Lab 測試人員',
+        email: overrides.email ?? 'lab@example.com',
+        phone: overrides.phone ?? null,
+        last_login: overrides.last_login ?? nowIso,
+        testing: true,
+        source: 'local-dev',
+        ...overrides,
+      }
+      setSessionUser(fakeUser)
+      setUnauthorized(false)
+      setSessionLoading(false)
+      if (onLogin) {
+        try { onLogin(fakeUser) } catch (err) { console.warn(err) }
+      }
+      setToastMsg('已以測試帳號登入 (僅本地用途)')
+      console.info('[H_Bus] 已載入測試帳號，重新整理即可恢復。')
+      return true
+    }
+    Object.defineProperty(window, 'hbusTestLogin', { value: helper, configurable: true })
+    console.info('[H_Bus] 測試模式：在 console 呼叫 hbusTestLogin(\'Lab@109**\') 可載入測試帳號。')
+    return () => {
+      if (window.hbusTestLogin === helper) {
+        delete window.hbusTestLogin
+      }
+    }
+  }, [onLogin])
+
   // 檢查 session 狀態，決定是否顯示登入介面
   useEffect(() => {
     async function checkSession() {
@@ -52,16 +105,18 @@ function ProfilePage({ user, onLogin, onLogout }) {
 
   // 預約列表載入
   useEffect(() => {
-    const uid = user?.id ?? user?.user_id
+    const current = (sessionUser && sessionUser.user_id) ? sessionUser : user
+    const uid = current?.id ?? current?.user_id
     if (!uid) return
     let cancelled = false
-    setResvLoading(true); setResvErr('')
+    setResvLoading(true)
+    setResvErr('')
     getMyReservations(uid)
       .then((rows) => { if (!cancelled) setMyResv(rows) })
       .catch((e) => { if (!cancelled) setResvErr(String(e.message || e)) })
       .finally(() => { if (!cancelled) setResvLoading(false) })
     return () => { cancelled = true }
-  }, [user])
+  }, [sessionUser, user])
 
   // 導覽狀態處理（預約完成提示、滾動）
   useEffect(() => {
@@ -113,19 +168,108 @@ function ProfilePage({ user, onLogin, onLogout }) {
     }
   }
 
+  const getEffectiveUser = () => (sessionUser && sessionUser.user_id) ? sessionUser : user
+
+  const openContactDialog = (field) => {
+    const currentUser = getEffectiveUser()
+    const currentValue = field === 'email' ? (currentUser?.email ?? '') : (currentUser?.phone ?? '')
+    setContactField(field)
+    setContactValue(currentValue || '')
+    setContactError('')
+  }
+
+  const closeContactDialog = () => {
+    if (contactSaving) return
+    setContactField(null)
+    setContactValue('')
+    setContactError('')
+  }
+
+  const handleContactSubmit = async (e) => {
+    e.preventDefault()
+    if (!contactField) return
+    const trimmed = contactValue.trim()
+    if (!trimmed) {
+      setContactError(contactField === 'email' ? '請輸入 Email' : '請輸入手機號碼')
+      return
+    }
+    if (contactField === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmed)) {
+      setContactError('請輸入有效的 Email')
+      return
+    }
+    if (contactField === 'phone' && !/^[0-9+\-#* ]{6,}$/.test(trimmed)) {
+      setContactError('請輸入有效的手機號碼')
+      return
+    }
+    const currentUser = getEffectiveUser()
+    const userId = currentUser?.user_id ?? currentUser?.id
+    if (!userId) {
+      setContactError('找不到使用者 ID')
+      return
+    }
+
+    setContactSaving(true)
+    setContactError('')
+    const endpoint = contactField === 'email' ? '/api/users/update_mail' : '/api/users/update_phone'
+    const params = new URLSearchParams({ user_id: String(userId) })
+    params.append(contactField, trimmed)
+
+    try {
+      const resp = await fetch(`${endpoint}?${params.toString()}`, { method: 'POST' })
+      if (!resp.ok) {
+        throw new Error('更新失敗')
+      }
+      const data = await resp.json().catch(() => ({}))
+      if (data.status !== 'success') {
+        throw new Error(data.detail || '更新失敗')
+      }
+      const updatedUser = { ...(currentUser || {}), [contactField]: trimmed }
+      setSessionUser(updatedUser)
+      if (onLogin) {
+        try { onLogin(updatedUser) } catch (err) { console.warn(err) }
+      }
+      setToastMsg(contactField === 'email' ? 'Email 已更新' : '手機已更新')
+      setContactSaving(false)
+      closeContactDialog()
+    } catch (err) {
+      console.error(err)
+      setContactError(err.message || '更新失敗')
+      setContactSaving(false)
+    }
+  }
+
   // ========== 介面渲染 ==========
   if (sessionLoading) {
     return <div className="auth-wrapper"><div className="auth-card">載入中…</div></div>
   }
-  if (sessionUser && sessionUser.user_id) {
-    user = sessionUser
+
+  const effectiveUser = getEffectiveUser()
+  const displayEmail = effectiveUser?.email || '尚未填寫'
+  const displayPhone = effectiveUser?.phone || '尚未填寫'
+  const contactLabel = contactField === 'email' ? 'Email' : '手機'
+  const dialogValue = contactField === 'email' ? displayEmail : displayPhone
+
+  if (!effectiveUser) {
+    return (
+      <div className="auth-wrapper">
+        <div className="auth-card">
+          <h2 className="auth-title">尚未登入</h2>
+          <p className="auth-subtitle">請先登入後再查看個人資訊。</p>
+          <button
+            className="line-login-button"
+            onClick={() => {
+              const ret = `${window.location.origin}/profile`
+              window.location.href = `/auth/line/login?return_to=${encodeURIComponent(ret)}`
+            }}
+          >
+            <img src="https://scdn.line-apps.com/n/line_reg_v2_oauth/img/naver/btn_login_base.png" alt="LINE Login" className="line-icon" />
+            使用 LINE 登入
+          </button>
+        </div>
+      </div>
+    )
   }
-  if (sessionUser === null) {
-    user = null
-  }
-  if (unauthorized) {
-    user = null
-  }
+
   if (!user) {
     return (
       <div className="auth-wrapper">
@@ -161,6 +305,13 @@ function ProfilePage({ user, onLogin, onLogout }) {
               <div className="meta-list">
                 <div className="small muted">帳號：{user.account || '(未設定)'}</div>
                 <div className="small muted">狀態：一般使用者</div>
+                {/* Email / Phone 修改區塊 */}
+                <div className="small">Email：{displayEmail}
+                  <button className="link-btn" onClick={() => openContactDialog('email')}>修改</button>
+                </div>
+                <div className="small">手機：{displayPhone}
+                  <button className="link-btn" onClick={() => openContactDialog('phone')}>修改</button>
+                </div>
               </div>
             </div>
           </div>
@@ -189,7 +340,7 @@ function ProfilePage({ user, onLogin, onLogout }) {
             {!resvLoading && !resvErr && myResv.length === 0 && (
               <div className="muted small">尚無預約，前往預約吧。</div>
             )}
-            {myResv.map((r, index) => {
+            {validReservations.map((r, index) => {
               const fmt = (s) => {
                 try {
                   if (!s) return '-'
@@ -250,25 +401,44 @@ function ProfilePage({ user, onLogin, onLogout }) {
         <section className="card">
           <div className="card-title"><span>最近行程</span></div>
           <div className="list">
-            {[
-              { id:1, route:'202 路線', dir:'去程', date:'09/05 08:32', fare:28, status:'已完成' },
-              { id:2, route:'路線 2', dir:'回程', date:'09/04 18:11', fare:24, status:'已完成' },
-              { id:3, route:'路線 7', dir:'去程', date:'09/03 08:29', fare:20, status:'已完成' },
-            ].map((t)=> (
-              <div className="item" key={t.id}>
-                <div>
-                  <div style={{ fontWeight:700 }}>{t.route} - {t.dir}</div>
-                  <div className="item-desc">{t.date} - ${t.fare} - {t.status}</div>
+            {(showMoreTrips ? failedReservations : failedReservations.slice(0, 3)).map((r, idx) => {
+              const fmt = (s) => {
+                try {
+                  if (!s) return '-'
+                  const d = new Date(s)
+                  if (isNaN(d)) return String(s)
+                  const y = d.getFullYear()
+                  const M = String(d.getMonth()+1).padStart(2,'0')
+                  const D = String(d.getDate()).padStart(2,'0')
+                  const h = String(d.getHours()).padStart(2,'0')
+                  const m = String(d.getMinutes()).padStart(2,'0')
+                  return `${y}-${M}-${D} ${h}:${m}`
+                } catch { return String(s) }
+              }
+              return (
+                <div className="item" key={idx}>
+                  <div>
+                    <div style={{ fontWeight:700 }}>
+                      {r.booking_start_station_name} → {r.booking_end_station_name}
+                    </div>
+                    <div className="item-desc">
+                      {fmt(r.booking_time)} ・ {r.booking_number} 人 ・ 狀態: {r.review_status}/{r.payment_status}
+                    </div>
+                  </div>
+                  <button className="btn-pay-manage" onClick={()=>alert('查看詳情', r.reservation_id)}>查看</button>
                 </div>
-                <button className="btn-pay-manage" onClick={()=>alert('查看行程 /api/trips/', t.id)}>查看</button>
-              </div>
-            ))}
+              )
+            })}
           </div>
-          <div className="mt-12" style={{ display:'flex', justifyContent:'flex-end' }}>
-            <button className="btn" onClick={()=>alert('查看更多 /api/trips/recent')}>查看更多</button>
-          </div>
+          {failedReservations.length > 3 && (
+            <div className="mt-12" style={{ display:'flex', justifyContent:'flex-end' }}>
+              <button className="btn" onClick={()=>setShowMoreTrips(!showMoreTrips)}>
+                {showMoreTrips ? '收起' : '查看更多'}
+              </button>
+            </div>
+          )}
         </section>
-
+      
         {/* 推播測試 */}
         <section className="card">
           <div className="card-title"><span>推播測試</span></div>
@@ -311,6 +481,48 @@ function ProfilePage({ user, onLogin, onLogout }) {
             </div>
           </div>
         </section>
+
+{contactField && (
+  <div className="modal-overlay">
+    <div className="modal-card">
+      <h3 style={{ fontWeight: "800", fontSize: "18px", marginBottom: "12px" }}>
+        {contactField === 'email' ? '修改 Email' : '修改手機號碼'}
+      </h3>
+
+      <form onSubmit={handleContactSubmit} className="auth-form">
+        <input
+          className="auth-input"
+          type={contactField === 'email' ? 'email' : 'tel'}
+          value={contactValue}
+          onChange={(e) => setContactValue(e.target.value)}
+          disabled={contactSaving}
+          placeholder={contactField === 'email' ? '請輸入新 Email' : '請輸入新手機號碼'}
+        />
+        {contactError && <div className="auth-error">{contactError}</div>}
+
+        <div className="modal-actions">
+          <button
+            type="submit"
+            className="btn btn-blue"
+            disabled={contactSaving}
+          >
+            {contactSaving ? '儲存中...' : '儲存'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-orange"
+            onClick={closeContactDialog}
+            disabled={contactSaving}
+          >
+            取消
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+
+
       </div>
     )
 }

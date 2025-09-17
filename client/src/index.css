@@ -439,7 +439,7 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #ffffff 100%);
 }
 
 .auth-card {

@@ -280,7 +280,7 @@ export default function ReservePage({ user, onRequireLogin }) {
 
       <section className="card">
         <div className="card-title"><span>地圖</span><small>顯示您的路線</small></div>
-        <div ref={mapEl} style={{ height: '60vh', width: '100%', borderRadius: 12 }} />
+        <div ref={mapEl} style={{ height: '30vh', width: '100%', borderRadius: 12 }} />
       </section>
     </div>
   )

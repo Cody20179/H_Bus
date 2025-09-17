@@ -37,7 +37,8 @@ app.add_middleware(
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 BASE_URL = "https://85b1115c2522.ngrok-free.app"
 # 允許由環境變數覆蓋預設前端導向網址，並確保為絕對 URL（含協定）
-FRONTEND_DEFAULT_URL = os.getenv("FRONTEND_DEFAULT_URL", "http://192.168.0.126:5173/profile")
+FRONTEND_DEFAULT_URL = os.getenv("FRONTEND_DEFAULT_URL", f"{BASE_URL}/profile")
+FRONTEND_DEFAULT_HOST = urlparse(FRONTEND_DEFAULT_URL).hostname if FRONTEND_DEFAULT_URL.startswith(('http://', 'https://')) else None
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
 # === LINE 設定 ===
@@ -142,17 +143,19 @@ def _is_safe_return_to(url: str) -> bool:
         return False
 
 def _default_frontend_url(request: Request, path: str = "/profile") -> str:
-    """推導登入後預設導向網址：優先用請求 Origin（若安全），否則使用環境變數。"""
+    """登入後預設導向網址：優先使用 ngrok/指定網域，其餘回退環境變數"""
     try:
         origin = request.headers.get("origin")
         if origin:
-            candidate = f"{origin.rstrip('/')}{path}"
-            if _is_safe_return_to(candidate):
-                return candidate
+            parsed = urlparse(origin)
+            host = parsed.hostname or ""
+            if host and (host.endswith(".ngrok-free.app") or (FRONTEND_DEFAULT_HOST and host == FRONTEND_DEFAULT_HOST)):
+                candidate = f"{origin.rstrip('/')}{path}"
+                if _is_safe_return_to(candidate):
+                    return candidate
     except Exception:
         pass
-    # 確保回傳為絕對 URL；若環境變數遺漏協定則補上 http://
-    if FRONTEND_DEFAULT_URL.startswith("http://") or FRONTEND_DEFAULT_URL.startswith("https://"):
+    if FRONTEND_DEFAULT_URL.startswith(("http://", "https://")):
         return FRONTEND_DEFAULT_URL
     return f"http://{FRONTEND_DEFAULT_URL.lstrip('/') }"
 
@@ -322,9 +325,33 @@ def show_reservations(user_id: str):
     return {"status": "success", "sql": results}
 
 """
+For Client Users
+"""
+@api.post("/users/update_mail", tags=["Users"], summary="更新使用者Email")
+def update_mail(user_id: int, email: str):
+    sql = f"""
+    UPDATE users
+    SET email = '{email}',
+        updated_at = NOW()
+    WHERE user_id = {user_id};
+    """
+    results = MySQL_Run(sql)
+    return {"status": "success", "sql": sql, "results": results}
+
+@api.post("/users/update_phone", tags=["Users"], summary="更新使用者Email")
+def update_phone(user_id: int, phone: str):
+    sql = f"""
+    UPDATE users
+    SET phone = '{phone}',
+        updated_at = NOW()
+    WHERE user_id = {user_id};
+    """
+    results = MySQL_Run(sql)
+    return {"status": "success", "sql": sql, "results": results}
+"""
 For Line Login API
 """
-@app.get("/auth/line/login")
+@app.get("/auth/line/login", tags=["Auth"], summary="Line 登入")
 def login(request: Request):
     force = request.query_params.get("force")
     uid = SessionManager.verify_session_token(request.cookies.get("app_session"))
@@ -353,13 +380,14 @@ def login(request: Request):
     url = LineAuth.get_login_url(state, challenge)
     return RedirectResponse(url)
 
-@app.get("/logout")
+@app.get("/logout", tags=["Auth"], summary="登出")
 def logout(request: Request):
-    resp = RedirectResponse(_default_frontend_url(request))
+    redirect_url = _default_frontend_url(request)
+    resp = RedirectResponse(redirect_url)
     resp.delete_cookie("app_session")
     return resp
 
-@app.get("/auth/line/callback")
+@app.get("/auth/line/callback", tags=["Auth"], summary="Line 登入回呼")
 async def callback(request: Request, code: str | None = None, state: str | None = None):
     data = r.get(f"login_state:{state}")
     if not code or not state or not data:
@@ -414,7 +442,7 @@ async def callback(request: Request, code: str | None = None, state: str | None 
     resp.set_cookie("app_session", app_token, httponly=True, max_age=7*24*3600, samesite=samesite, secure=secure)
     return resp
 
-@app.get("/me")
+@app.get("/me", tags=["Auth"], summary="取得使用者資訊")
 async def me(request: Request):
     app_token = request.cookies.get("app_session")
     if not app_token:
