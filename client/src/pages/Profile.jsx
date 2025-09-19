@@ -396,6 +396,7 @@ function ProfilePage({ user, onLogin, onLogout }) {
                   <div className="resv-main">
                     <div className="resv-title">{r.booking_start_station_name} → {r.booking_end_station_name}</div>
                     <div className="resv-sub">{fmt(r.booking_time)} ・ {r.booking_number} 人</div>
+                    <div className="small muted">預約編號：{r.reservation_id}</div>
                     <div className="resv-status">
                       <span className={`status-chip ${cls(r.review_status)}`}>審核 {r.review_status || '-'}</span>
                       <span className={`status-chip ${cls(r.payment_status)}`}>支付 {r.payment_status || '-'}</span>
@@ -417,7 +418,7 @@ function ProfilePage({ user, onLogin, onLogout }) {
                         onClick={async () => {
                           if (!window.confirm('確定取消此預約？')) return
                           try {
-                            await cancelReservation({ reservationId: r.id })
+                            await cancelReservation(r.reservation_id)
                             const uid = user?.id ?? user?.user_id
                             const next = await getMyReservations(uid)
                             setMyResv(next)
@@ -458,9 +459,9 @@ function ProfilePage({ user, onLogin, onLogout }) {
                     <div style={{ fontWeight:700 }}>
                       {r.booking_start_station_name} → {r.booking_end_station_name}
                     </div>
-                    <div className="item-desc">
-                      {fmt(r.booking_time)} ・ {r.booking_number} 人 ・ 狀態: {r.review_status}/{r.payment_status}
-                    </div>
+                      <div className="item-desc">
+                        {fmt(r.booking_time)} ・ {r.booking_number} 人 ・ 狀態: {r.review_status}/{r.payment_status} ・ 編號: {r.reservation_id}
+                      </div>
                   </div>
                   <button className="btn-pay-manage" onClick={()=>alert('查看詳情', r.reservation_id)}>查看</button>
                 </div>
@@ -574,11 +575,28 @@ function ProfilePage({ user, onLogin, onLogout }) {
         <p><strong>到達：</strong>{selectedResv.booking_end_station_name}</p>
         <p><strong>時間：</strong>{fmt(selectedResv.booking_time)}</p>
         <p><strong>人數：</strong>{selectedResv.booking_number}</p>
+        <p><strong>預約編號：</strong>{selectedResv.reservation_id}</p>
       </div>
 
       {/* 底部兩顆按鈕 */}
       <div className="modal-actions">
-        <button className="btn btn-orange">取消預約</button>
+        <button
+          className="btn btn-orange"
+          onClick={async () => {
+            if (!window.confirm('確定取消此預約？')) return
+            try {
+              await cancelReservation(selectedResv.reservation_id)
+              const uid = user?.id ?? user?.user_id
+              const next = await getMyReservations(uid)
+              setMyResv(next)
+              setShowRouteModal(false) // 取消後順便關掉 modal (可選)
+            } catch (e) {
+              alert(String(e.message || e))
+            }
+          }}
+        >
+          取消預約
+        </button>
         <button className="btn btn-blue">付款</button>
       </div>
     </div>

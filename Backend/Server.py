@@ -38,7 +38,7 @@ app.add_middleware(
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 BASE_URL = "https://95bb222f1f3d.ngrok-free.app"
 # 允許由環境變數覆蓋預設前端導向網址，並確保為絕對 URL（含協定）
-FRONTEND_DEFAULT_URL = os.getenv("FRONTEND_DEFAULT_URL", f"{BASE_URL}/profile")
+FRONTEND_DEFAULT_URL = f"{BASE_URL}/profile"
 FRONTEND_DEFAULT_HOST = urlparse(FRONTEND_DEFAULT_URL).hostname if FRONTEND_DEFAULT_URL.startswith(('http://', 'https://')) else None
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
@@ -290,15 +290,9 @@ def yo_hualien():
     df = pd.DataFrame(rows, columns=columns)
     return df.to_dict(orient="records") 
 
-class ReservationReq(BaseModel):
-    user_id: int
-    booking_time: datetime
-    booking_number: int
-    booking_start_station_name: str
-    booking_end_station_name: str
 
 @api.post("/reservation", tags=["Client"], summary="送出預約")
-def push_reservation(req: ReservationReq):
+def push_reservation(req: Define.ReservationReq):
     sql = f"""
     INSERT INTO reservation (
         user_id, booking_time, booking_number, 
@@ -317,7 +311,7 @@ def push_reservation(req: ReservationReq):
 @api.get("/reservations/my", tags=["Client"], summary="預約查詢")
 def show_reservations(user_id: str):
     sql = f"""
-    SELECT user_id, booking_time, booking_number, 
+    SELECT reservation_id, user_id, booking_time, booking_number, 
            booking_start_station_name, booking_end_station_name,
            review_status, payment_status
     FROM reservation where user_id = '{user_id}'
@@ -326,6 +320,15 @@ def show_reservations(user_id: str):
 
     return {"status": "success", "sql": results}
 
+@api.post("/reservations/Canceled", tags=["Client"], summary="取消預約")
+def Cancled_reservation(req: Define.CancelReq):
+    sql = f"""
+    UPDATE reservation
+    SET review_status = 'canceled'
+    WHERE reservation_id = {req.reservation_id};
+    """
+    Results = MySQL_Run(sql)
+    return {"status": "success", "sql": Results}
 """
 For Client Users
 """
@@ -350,6 +353,8 @@ def update_phone(user_id: int, phone: str):
     """
     results = MySQL_Run(sql)
     return {"status": "success", "sql": sql, "results": results}
+
+
 """
 For Line Login API
 """

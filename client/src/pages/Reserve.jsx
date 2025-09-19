@@ -172,7 +172,11 @@ export default function ReservePage({ user, onRequireLogin }) {
     }
 
     // 小工具：判斷空字串/空白
-    const isBlank = (x) => x == null || String(x).trim() === ""
+    const isBlank = (x) => {
+      if (x == null) return true
+      const s = String(x).trim().toLowerCase()
+      return s === "" || s === "none" || s === "null" || s === "undefined"
+    }
 
     // 確認 user 結構
     console.log("ReservePage user:", user)

@@ -41,3 +41,21 @@ def Show_Tables():
     Tables = MySQL_Run("SHOW TABLES")
     Tables = pd.DataFrame(Tables)
     return Tables
+
+def MySQL_Run2(query, params=None, Parameter=Infor):
+    mydb = init(Parameter)
+    mycursor = mydb.cursor()
+    if params:
+        mycursor.execute(query, params)
+    else:
+        mycursor.execute(query)
+
+    if query.strip().lower().startswith(("select", "show", "desc")):
+        result = mycursor.fetchall()
+    else:
+        mydb.commit()
+        result = "Query executed."
+
+    mycursor.close()
+    mydb.close()
+    return result

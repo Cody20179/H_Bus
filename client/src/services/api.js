@@ -120,15 +120,17 @@ export async function getMyReservations(userId) {
   return rows
 }
 
-export async function cancelReservation({ reservationId }) {
-  const res = await fetch(`${BASE}/reservations/${encodeURIComponent(reservationId)}`, {
-    method: 'DELETE',
-    headers: { accept: 'application/json' },
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.detail || `Cancel failed: ${res.status}`)
-  return data
+export async function cancelReservation(reservationId) {
+  const res = await fetch(`${BASE}/reservations/Canceled`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ reservation_id: reservationId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.detail || `Cancel failed: ${res.status}`);
+  return data;
 }
+
 
 export async function createReservation(payload) {
   // 你的後端 FastAPI 函式參數（未使用 Body/Form），預設 expects Query 參數
