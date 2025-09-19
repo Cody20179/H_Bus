@@ -23,6 +23,23 @@ export default function NearbyStations({ onClose }) {
   const overlayRef = useRef(null)
   const [selectedId, setSelectedId] = useState(null)
 
+  const nearest = useMemo(() => {
+  const me = { lat: loc.lat, lng: loc.lng }
+  return stations
+    .map((s, idx) => ({
+      id: `${s['路徑名稱']}-${s['路程']}-${s['站次']}-${idx}`,
+      name: s['站點'] || s['位置'] || `第${(s['站次'] ?? idx + 1)}站`,
+      route: s['路徑名稱'] || '',
+      dir: s['路程'] || '',
+      lat: Number(s['去程緯度'] ?? s['緯度'] ?? 0),
+      lng: Number(s['去程經度'] ?? s['經度'] ?? 0),
+    }))
+    .filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lng))
+    .map((x) => ({ ...x, dist: haversine(me, x) }))
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, 5) // 只取前 5 筆
+  }, [loc])
+
   useEffect(() => {
     // 取得目前位置（高精度，但設 timeout 以免卡住）
     if (!('geolocation' in navigator)) {
@@ -100,22 +117,7 @@ export default function NearbyStations({ onClose }) {
     return () => { try { mapRef.current.off('click', handler) } catch {} }
   }, [ready, nearest])
 
-  const nearest = useMemo(() => {
-    const me = { lat: loc.lat, lng: loc.lng }
-    return stations
-      .map((s, idx) => ({
-        id: `${s['路徑名稱']}-${s['路程']}-${s['站次']}-${idx}`,
-        name: s['站點'] || s['位置'] || `第${(s['站次'] ?? idx + 1)}站`,
-        route: s['路徑名稱'] || '',
-        dir: s['路程'] || '',
-        lat: Number(s['去程緯度'] ?? s['緯度'] ?? 0),
-        lng: Number(s['去程經度'] ?? s['經度'] ?? 0),
-      }))
-      .filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lng))
-      .map((x) => ({ ...x, dist: haversine(me, x) }))
-      .sort((a, b) => a.dist - b.dist)
-      .slice(0, 5) // 只取前 5 筆
-  }, [loc])
+
 
   useEffect(() => {
     if (!ready || !mapRef.current) return

@@ -1,4 +1,4 @@
-// Centralized API client for the frontend.
+﻿// Centralized API client for the frontend.
 // Dev: use Vite proxy with path `/api`.
 // Prod (same-origin deploy): default to '' unless VITE_API_BASE_URL is set.
 const envBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || ''
@@ -15,7 +15,7 @@ export async function getRoutes() {
   const data = await res.json()
 
   return data
-    .filter((r) => r.status !== 0) // 把 status 為 0 的項目剔除
+    .filter((r) => r.status !== 0) // ??status ??0 ???桀???
     .map((r) => ({
       id: r.route_id,
       name: r.route_name,
@@ -86,7 +86,7 @@ export async function bindContacts({ username, phone, email }) {
 }
 
 // --- Stations (Hualien) ---
-// 取得 /yo_hualien 的站點清單
+// ?? /yo_hualien ??暺???
 export async function getStations() {
   const res = await fetch(`${BASE}/yo_hualien`, {
     headers: { accept: 'application/json' },
@@ -95,7 +95,7 @@ export async function getStations() {
     throw new Error(`Failed to load stations: ${res.status}`)
   }
   const data = await res.json()
-  // 正規化：確保數值類型且提供簡易 id
+  // 甇????蝣箔??詨潮?????蝪⊥? id
   return data
     .filter((s) => Number.isFinite(Number(s.latitude)) && Number.isFinite(Number(s.longitude)))
     .map((s, i) => ({
@@ -115,8 +115,12 @@ export async function getMyReservations(userId) {
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(`Failed to load reservations: ${res.status}`)
-  // 後端目前回傳 { status, sql }；其中 sql 才是資料列陣列
-  const rows = Array.isArray(data?.sql) ? data.sql : (Array.isArray(data) ? data : [])
+  // 敺垢?桀?? { status, sql }嚗銝?sql ?鞈????
+  let rows = []
+  if (Array.isArray(data?.reservations)) rows = data.reservations
+  else if (Array.isArray(data?.sql)) rows = data.sql
+  else if (Array.isArray(data?.data)) rows = data.data
+  else if (Array.isArray(data)) rows = data
   return rows
 }
 
@@ -133,8 +137,8 @@ export async function cancelReservation(reservationId) {
 
 
 export async function createReservation(payload) {
-  // 你的後端 FastAPI 函式參數（未使用 Body/Form），預設 expects Query 參數
-  // 因此改成以 QueryString 傳遞，method 維持 POST
+  // 雿?敺垢 FastAPI ?賢??嚗雿輻 Body/Form嚗??身 expects Query ?
+  // ?迨?寞?隞?QueryString ?喲?嚗ethod 蝬剜? POST
   const params = new URLSearchParams()
   Object.entries(payload || {}).forEach(([k, v]) => {
     if (v !== undefined && v !== null) params.append(k, String(v))
@@ -171,3 +175,4 @@ export async function updateReservation(reservationId, fields) {
   if (!res.ok) throw new Error(data?.detail || `Update failed: ${res.status}`)
   return data
 }
+

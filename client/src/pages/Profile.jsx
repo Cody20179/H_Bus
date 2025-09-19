@@ -7,7 +7,7 @@ function ProfilePage({ user, onLogin, onLogout }) {
   const navigate = useNavigate()
   const location = useLocation()
   // 狀態管理
-  const [showVerify, setShowVerify] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
   const [showRouteModal, setShowRouteModal] = useState(false)
   const [selectedResv, setSelectedResv] = useState(null)
   const [sessionUser, setSessionUser] = useState(null)
@@ -17,7 +17,7 @@ function ProfilePage({ user, onLogin, onLogout }) {
   const [resvLoading, setResvLoading] = useState(false)
   const [resvErr, setResvErr] = useState('')
   const [toastMsg, setToastMsg] = useState('')
-  const [cooldown, setCooldown] = useState(0)
+  const [cancelTarget, setCancelTarget] = useState(null)
   const resvRef = useRef(null)
   const [contactField, setContactField] = useState(null)
   const [contactValue, setContactValue] = useState('')
@@ -35,8 +35,6 @@ function ProfilePage({ user, onLogin, onLogout }) {
     String(r.review_status||'').toLowerCase().includes('canceled') ||
     String(r.payment_status||'').toLowerCase().includes('fail')
   )
-  const AUTH_BASE = import.meta.env.VITE_AUTH_BASE_URL;
-  console.log('AUTH_BASE =', import.meta.env.VITE_AUTH_BASE_URL);
   
   useEffect(() => {
     if (import.meta.env.MODE === 'production') return
@@ -325,7 +323,6 @@ function ProfilePage({ user, onLogin, onLogout }) {
             <div className="overview-meta">
               <div className="meta-title">{user.username} 的帳戶</div>
               <div className="meta-list">
-                <div className="small muted">帳號：{user.account || '(未設定)'}</div>
                 <div className="small muted">狀態：一般使用者</div>
                 {/* Email / Phone 修改區塊 */}
                 <div className="small">Email：{displayEmail}
@@ -412,22 +409,15 @@ function ProfilePage({ user, onLogin, onLogout }) {
                     >
                       查看路線
                     </button>
-                    {cancellable && (
-                      <button
-                        className="btn"
-                        onClick={async () => {
-                          if (!window.confirm('確定取消此預約？')) return
-                          try {
-                            await cancelReservation(r.reservation_id)
-                            const uid = user?.id ?? user?.user_id
-                            const next = await getMyReservations(uid)
-                            setMyResv(next)
-                          } catch (e) {
-                            alert(String(e.message || e))
-                          }
-                        }}
-                      >取消</button>
-                    )}
+{cancellable && (
+  <button
+    className="btn"
+    onClick={() => setCancelTarget(r)} // 不用 confirm，直接打開取消 Modal
+  >
+    取消
+  </button>
+)}
+
                   </div>
                 </div>
               )
@@ -492,12 +482,12 @@ function ProfilePage({ user, onLogin, onLogout }) {
           <div className="list">
             <div className="item">
               <div>
-                <div style={{ fontWeight: 700 }}>常見問題 FAQ</div>
-                <div className="item-desc">查看常見問題</div>
+                <div style={{ fontWeight: 700 }}>聯絡客服</div>
+                <div className="item-desc">客服電話</div>
               </div>
               <div className="item-col">
-                <button className="btn btn-blue" onClick={()=>alert('查看常見問題')}>查看</button>
-                <button className="btn btn-blue" onClick={()=>alert('聯絡客服')}>聯絡客服</button>
+                {/* <button className="btn btn-blue" onClick={()=>alert('聯絡客服')}>聯絡客服</button> */}
+                <div className="item-desc">0951861516</div>
               </div>
             </div>
             <div className="item">
@@ -580,28 +570,73 @@ function ProfilePage({ user, onLogin, onLogout }) {
 
       {/* 底部兩顆按鈕 */}
       <div className="modal-actions">
-        <button
-          className="btn btn-orange"
-          onClick={async () => {
-            if (!window.confirm('確定取消此預約？')) return
-            try {
-              await cancelReservation(selectedResv.reservation_id)
-              const uid = user?.id ?? user?.user_id
-              const next = await getMyReservations(uid)
-              setMyResv(next)
-              setShowRouteModal(false) // 取消後順便關掉 modal (可選)
-            } catch (e) {
-              alert(String(e.message || e))
-            }
-          }}
-        >
-          取消預約
-        </button>
+<button
+  className="btn btn-orange"
+  onClick={() => setCancelTarget(selectedResv)} // 打開 modal，而不是 confirm
+>
+  取消預約
+</button>
+
         <button className="btn btn-blue">付款</button>
       </div>
     </div>
   </div>
 )}
+
+{cancelTarget && (
+  <div className="modal-overlay">
+    <div className="modal-card">
+      <h3 style={{ fontWeight: "800", fontSize: "18px", marginBottom: "12px" }}>
+        請輸入取消原因
+      </h3>
+      <p>
+        {cancelTarget.booking_start_station_name} → {cancelTarget.booking_end_station_name}<br />
+        時間：{fmt(cancelTarget.booking_time)} ・ 人數：{cancelTarget.booking_number}
+      </p>
+
+      <textarea
+        className="auth-input"
+        placeholder="請輸入取消原因"
+        value={cancelReason}
+        onChange={(e) => setCancelReason(e.target.value)}
+        style={{ width: '100%', minHeight: '80px', marginTop: '8px' }}
+      />
+
+      <div className="modal-actions">
+        <button
+          className="btn btn-orange"
+          disabled={!cancelReason.trim()}
+          onClick={async () => {
+            try {
+              // 這裡把原因一併送給後端（假設 API 接受）
+              await cancelReservation(cancelTarget.reservation_id, cancelReason)
+              const uid = user?.id ?? user?.user_id
+              const next = await getMyReservations(uid)
+              setMyResv(next)
+              setCancelTarget(null) 
+              setCancelReason('') // 清空原因
+              setShowRouteModal(false) 
+            } catch (e) {
+              setToastMsg(String(e.message || e))
+            }
+          }}
+        >
+          確定取消
+        </button>
+        <button
+          className="btn"
+          onClick={() => {
+            setCancelTarget(null)
+            setCancelReason('')
+          }}
+        >
+          返回
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
 
       </div>
     )
