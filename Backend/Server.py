@@ -4,6 +4,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from typing import List
 from datetime import datetime
+from pydantic import BaseModel
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 from MySQL import MySQL_Run
@@ -35,7 +36,7 @@ app.add_middleware(
 
 # === Redis 初始化 ===
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-BASE_URL = "https://85b1115c2522.ngrok-free.app"
+BASE_URL = "https://95bb222f1f3d.ngrok-free.app"
 # 允許由環境變數覆蓋預設前端導向網址，並確保為絕對 URL（含協定）
 FRONTEND_DEFAULT_URL = os.getenv("FRONTEND_DEFAULT_URL", f"{BASE_URL}/profile")
 FRONTEND_DEFAULT_HOST = urlparse(FRONTEND_DEFAULT_URL).hostname if FRONTEND_DEFAULT_URL.startswith(('http://', 'https://')) else None
@@ -289,24 +290,25 @@ def yo_hualien():
     df = pd.DataFrame(rows, columns=columns)
     return df.to_dict(orient="records") 
 
+class ReservationReq(BaseModel):
+    user_id: int
+    booking_time: datetime
+    booking_number: int
+    booking_start_station_name: str
+    booking_end_station_name: str
+
 @api.post("/reservation", tags=["Client"], summary="送出預約")
-def push_reservation(
-    user_id: str,
-    booking_time: datetime,
-    booking_number: str,
-    booking_start_station_name: str,
-    booking_end_station_name: str,
-):
+def push_reservation(req: ReservationReq):
     sql = f"""
     INSERT INTO reservation (
         user_id, booking_time, booking_number, 
         booking_start_station_name, booking_end_station_name
     ) VALUES (
-        '{user_id}', 
-        '{booking_time}', 
-        '{booking_number}', 
-        '{booking_start_station_name}', 
-        '{booking_end_station_name}'
+        '{req.user_id}', 
+        '{req.booking_time}', 
+        '{req.booking_number}', 
+        '{req.booking_start_station_name}', 
+        '{req.booking_end_station_name}'
     )
     """
     MySQL_Run(sql)

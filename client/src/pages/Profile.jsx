@@ -8,6 +8,8 @@ function ProfilePage({ user, onLogin, onLogout }) {
   const location = useLocation()
   // 狀態管理
   const [showVerify, setShowVerify] = useState(false)
+  const [showRouteModal, setShowRouteModal] = useState(false)
+  const [selectedResv, setSelectedResv] = useState(null)
   const [sessionUser, setSessionUser] = useState(null)
   const [sessionLoading, setSessionLoading] = useState(true)
   const [unauthorized, setUnauthorized] = useState(false)
@@ -24,11 +26,13 @@ function ProfilePage({ user, onLogin, onLogout }) {
   const [showMoreTrips, setShowMoreTrips] = useState(false)
   const validReservations = myResv.filter(r =>
     !(String(r.review_status||'').toLowerCase().includes('reject') ||
+      String(r.review_status||'').toLowerCase().includes('canceled') ||
       String(r.payment_status||'').toLowerCase().includes('fail'))
   )
 
   const failedReservations = myResv.filter(r =>
     String(r.review_status||'').toLowerCase().includes('reject') ||
+    String(r.review_status||'').toLowerCase().includes('canceled') ||
     String(r.payment_status||'').toLowerCase().includes('fail')
   )
   const AUTH_BASE = import.meta.env.VITE_AUTH_BASE_URL;
@@ -169,6 +173,24 @@ function ProfilePage({ user, onLogin, onLogout }) {
   }
 
   const getEffectiveUser = () => (sessionUser && sessionUser.user_id) ? sessionUser : user
+
+  // 共用時間格式化函式
+  const fmt = (s) => {
+    try {
+      if (!s) return '-'
+      const d = new Date(s)
+      if (isNaN(d)) return String(s)
+      const y = d.getFullYear()
+      const M = String(d.getMonth() + 1).padStart(2, '0')
+      const D = String(d.getDate()).padStart(2, '0')
+      const h = String(d.getHours()).padStart(2, '0')
+      const m = String(d.getMinutes()).padStart(2, '0')
+      return `${y}-${M}-${D} ${h}:${m}`
+    } catch {
+      return String(s)
+    }
+  }
+
 
   const openContactDialog = (field) => {
     const currentUser = getEffectiveUser()
@@ -361,7 +383,14 @@ function ProfilePage({ user, onLogin, onLogout }) {
                 if (s.includes('reject')||s.includes('cancel')||s.includes('fail')) return 'rejected'
                 return 'secondary'
               }
-              const cancellable = ((r.id || r.reservation_id) && (String(r.status||'').includes('審核中') || String(r.review_status||'').toLowerCase().includes('pending')))
+              const cancellable = (r.id || r.reservation_id) &&
+              ['審核中', 'pending', 'approved', 'not_assigned'].some(keyword =>
+                String(r.status || '').includes(keyword) ||
+                String(r.review_status || '').toLowerCase().includes(keyword) ||
+                String(r.payment_status || '').toLowerCase().includes(keyword) ||
+                String(r.dispatch_status || '').toLowerCase().includes(keyword)
+              )
+
               return (
                 <div className="resv-card" key={index}>
                   <div className="resv-main">
@@ -373,7 +402,15 @@ function ProfilePage({ user, onLogin, onLogout }) {
                     </div>
                   </div>
                   <div className="resv-actions">
-                    <button className="btn btn-blue" onClick={() => alert(`${r.booking_start_station_name} → ${r.booking_end_station_name}\n${fmt(r.booking_time)} ・ ${r.booking_number} 人`) }>查看路線</button>
+                    <button
+                      className="btn btn-blue"
+                      onClick={() => {
+                        setSelectedResv(r)
+                        setShowRouteModal(true)
+                      }}
+                    >
+                      查看路線
+                    </button>
                     {cancellable && (
                       <button
                         className="btn"
@@ -522,6 +559,31 @@ function ProfilePage({ user, onLogin, onLogout }) {
   </div>
 )}
 
+{selectedResv && showRouteModal && (
+  <div className="modal-overlay">
+    <div className="modal-card route-modal">
+      {/* 頂部：標題 + 右上角關閉 */}
+      <div className="modal-header">
+        <h3 className="modal-title">路線資訊</h3>
+        <button className="modal-close" onClick={() => setShowRouteModal(false)}>×</button>
+      </div>
+
+      {/* 內容 */}
+      <div className="modal-body">
+        <p><strong>出發：</strong>{selectedResv.booking_start_station_name}</p>
+        <p><strong>到達：</strong>{selectedResv.booking_end_station_name}</p>
+        <p><strong>時間：</strong>{fmt(selectedResv.booking_time)}</p>
+        <p><strong>人數：</strong>{selectedResv.booking_number}</p>
+      </div>
+
+      {/* 底部兩顆按鈕 */}
+      <div className="modal-actions">
+        <button className="btn btn-orange">取消預約</button>
+        <button className="btn btn-blue">付款</button>
+      </div>
+    </div>
+  </div>
+)}
 
       </div>
     )

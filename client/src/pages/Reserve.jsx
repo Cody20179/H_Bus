@@ -81,7 +81,6 @@ export default function ReservePage({ user, onRequireLogin }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const isLoggedIn = Boolean(user)
-
   const mapEl = useRef(null)
   const mapRef = useRef(null)
   const routeLayerRef = useRef(null)
@@ -167,16 +166,66 @@ export default function ReservePage({ user, onRequireLogin }) {
     const v = validateSelection()
     if (!v) return
 
-    const check = validateReservationDateTime(whenDate, whenTime)
-    if (!check.ok) {
-      setError(check.msg)
+    if (!whenDate || !whenTime) {
+      setError("請選擇日期與時間")
       return
     }
 
-    if (!people) { setError('請選擇人數'); return }
+    // 小工具：判斷空字串/空白
+    const isBlank = (x) => x == null || String(x).trim() === ""
 
-    alert('送出成功！（這裡串接 reservation API）')
-    navigate('/profile?tab=reservations', { state: { toast: '預約成功，等待審核。' } })
+    // 確認 user 結構
+    console.log("ReservePage user:", user)
+    const uid = user?.user_id || user?.id
+    if (!uid) {
+      setError("找不到使用者 ID，請重新登入")
+      return
+    }
+
+    // ✅ 驗證必填聯絡資料（Email 與手機）
+    const hasEmail = !isBlank(user?.email)
+    const hasPhone = !isBlank(user?.phone)
+    if (!hasEmail || !hasPhone) {
+      setError("請先於個人資料填寫『Email』與『手機號碼』後再預約。")
+      // 可選：導去個人頁面讓他直接補資料
+      // navigate("/profile", { state: { toast: "請先填寫 Email 與手機號碼" } })
+      return
+    }
+
+    // 格式化時間 (ISO)
+    const bookingTime = `${whenDate}T${whenTime}:00`
+
+    setLoading(true)
+    try {
+      const resp = await fetch("/api/reservation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: String(uid),                     // 後端若用 string 型別就保險轉字串
+          booking_time: bookingTime,
+          booking_number: String(people),           // 同上
+          booking_start_station_name: v.from.name,
+          booking_end_station_name: v.to.name,
+        }),
+      })
+
+      if (!resp.ok) {
+        const msg = await resp.text()
+        throw new Error(`API 錯誤 ${resp.status}: ${msg}`)
+      }
+
+      const data = await resp.json()
+      console.log("Reservation success:", data)
+
+      navigate("/profile?tab=reservations", {
+        state: { toast: "預約成功，等待審核。" },
+      })
+    } catch (err) {
+      console.error("Reservation failed:", err)
+      setError(err.message || "送出預約失敗")
+    } finally {
+      setLoading(false)
+    }
   }
 
 
@@ -203,8 +252,7 @@ export default function ReservePage({ user, onRequireLogin }) {
   }
 
   return { ok: true }
-}
-
+  }
 
   if (!isLoggedIn) {
     return (
