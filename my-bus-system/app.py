@@ -2685,5 +2685,5 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: Admin
     db.commit()
     return {"message": "用戶刪除成功"}
 
-if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8500, reload=True)
+# if __name__ == "__main__":
+#     uvicorn.run("app:app", host="0.0.0.0", port=8500, reload=True)

@@ -232,7 +232,6 @@ export default function ReservePage({ user, onRequireLogin }) {
     }
   }
 
-
   function validateReservationDateTime(dateStr, timeStr) {
   if (!dateStr || !timeStr) return { ok: false, msg: "請選擇日期與時間" }
 

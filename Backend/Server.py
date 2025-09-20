@@ -324,11 +324,13 @@ def show_reservations(user_id: str):
 def Cancled_reservation(req: Define.CancelReq):
     sql = f"""
     UPDATE reservation
-    SET review_status = 'canceled'
+    SET review_status = 'canceled',
+        cancel_reason = '{req.cancel_reason}'
     WHERE reservation_id = {req.reservation_id};
     """
     Results = MySQL_Run(sql)
     return {"status": "success", "sql": Results}
+
 """
 For Client Users
 """

@@ -26,3 +26,4 @@ class ReservationReq(BaseModel):
     
 class CancelReq(BaseModel):
     reservation_id: int
+    cancel_reason: str 

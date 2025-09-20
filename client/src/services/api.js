@@ -124,16 +124,20 @@ export async function getMyReservations(userId) {
   return rows
 }
 
-export async function cancelReservation(reservationId) {
+export async function cancelReservation(reservationId, cancelReason) {
   const res = await fetch(`${BASE}/reservations/Canceled`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ reservation_id: reservationId }),
+    body: JSON.stringify({
+      reservation_id: reservationId,
+      cancel_reason: cancelReason,
+    }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.detail || `Cancel failed: ${res.status}`);
   return data;
 }
+
 
 
 export async function createReservation(payload) {
