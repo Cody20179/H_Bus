@@ -1,134 +1,280 @@
-﻿// src/pages/HomeView.jsx
-import React from 'react'
-import BottomNav from '../components/BottomNav'
-import { getMyReservations, getStations } from '../services/api'
+﻿import React, { useState, useEffect, useRef } from 'react'
+import { getRoutes, getRouteStops, getTomorrowReservations } from '../services/api'
 
-export default function HomeView({ onAction, user }) {
-  const [tomorrowReservations, setTomorrowReservations] = React.useState([])
-  const [nearbyStops, setNearbyStops] = React.useState([])
-  const [locationError, setLocationError] = React.useState('')
+export default function HomeView({ onAction, user, onNavigateRoutes }) {
+  // 🔹 搜尋相關 state
+  const [allRoutes, setAllRoutes] = useState([])
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
 
-  React.useEffect(() => {
+  // 🔹 即時到站相關 state
+  const [arrivals, setArrivals] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [tick, setTick] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [pressedKey, setPressedKey] = useState(null)
+
+  // 🔹 明日預約
+  const [tomorrowReservations, setTomorrowReservations] = useState([])
+
+  // --- Auto refresh 控制 ---
+  const AUTO_REFRESH_MS = 30000 // 30s
+  const interactingRef = useRef(false)
+  const interactTimer = useRef(null)
+
+  // 標記使用者互動，避免 refresh jank
+  useEffect(() => {
+    const markInteract = () => {
+      interactingRef.current = true
+      clearTimeout(interactTimer.current)
+      interactTimer.current = setTimeout(() => (interactingRef.current = false), 900)
+    }
+    const onScroll = () => markInteract()
+    const onTouchStart = () => markInteract()
+    const onTouchEnd = () => markInteract()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchend', onTouchEnd)
+      clearTimeout(interactTimer.current)
+    }
+  }, [])
+
+  // 定時更新 tick
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.hidden) return
+      if (interactingRef.current) return
+      if (searchOpen) return
+      setTick((t) => (t + 1) % 1_000_000)
+    }, AUTO_REFRESH_MS)
+    return () => clearInterval(id)
+  }, [searchOpen])
+
+  // --- 抓即時到站 ---
+  useEffect(() => {
+    let cancelled = false
+    const refresh = async ({ hard = false } = {}) => {
+      try {
+        if (hard) setLoading(true)
+        setError(null)
+        const routes = allRoutes.length ? allRoutes : await getRoutes()
+        if (!allRoutes.length) setAllRoutes(routes)
+        const pick = routes.slice(0, 3)
+        const perRoute = await Promise.all(
+          pick.map(async (r) => {
+            let stops = []
+            try {
+              stops = await getRouteStops(r.id, '去程')
+            } catch {
+              try { stops = await getRouteStops(r.id, '回程') } catch {}
+            }
+            return { route: r, stops }
+          })
+        )
+        const items = perRoute.flatMap(({ route: r, stops }) => {
+          if (!stops || stops.length === 0) return []
+          const lastEta = stops.reduce((m, s) => Math.max(m, Number(s.etaFromStart) || 0), 0)
+          const cycle = Math.max(lastEta + 5, stops.length * 3) || 20
+          const nowMin = (Date.now() / 60000) % cycle
+          const annotate = (eta) => {
+            const delta = eta - nowMin
+            if (delta <= -1.0) return { label: '已過站', etaText: null, score: 999 }
+            if (delta <= 0.25) return { label: '到站中', etaText: '0 分鐘', score: 0 }
+            if (delta <= 5.0) return { label: '即將到站', etaText: `${Math.ceil(delta)} 分鐘`, score: delta }
+            return { label: '等待中', etaText: `${Math.ceil(delta)} 分鐘`, score: delta + 100 }
+          }
+          const enriched = stops
+            .map((s, idx) => {
+              const eta = Number(s.etaFromStart ?? (idx * 3))
+              const a = annotate(eta)
+              return {
+                route: r.name,
+                directionLabel: r.direction?.includes('回') ? '(回)' : '(去)',
+                stop: s.stopName || `第${(s.order ?? (idx + 1))}站`,
+                eta: a.etaText || '-',
+                status: a.label,
+                score: a.score,
+                key: `${r.id}-${s.order ?? idx}`,
+              }
+            })
+            .sort((a, b) => a.score - b.score)
+          return enriched.slice(0, 1)
+        })
+        if (!cancelled) {
+          const next = items.slice(0, 3)
+          const a = JSON.stringify(next)
+          const b = JSON.stringify(arrivals)
+          if (a !== b) setArrivals(next)
+          setLastUpdated(new Date())
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError('無法載入即將到站資料')
+          console.warn('Home arrivals load error:', e)
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+          setRefreshing(false)
+        }
+      }
+    }
+    refresh({ hard: true })
+    return () => { cancelled = true }
+  }, [tick]) // eslint-disable-line
+
+  // --- 抓明日預約 ---
+  useEffect(() => {
     const uid = user?.user_id || user?.id
     if (!uid) return
-
-    getMyReservations(uid).then(rows => {
-      const tomorrow = new Date()
-      tomorrow.setDate(tomorrow.getDate() + 1)
-
-      const yyyy = tomorrow.getFullYear()
-      const mm = tomorrow.getMonth() + 1
-      const dd = tomorrow.getDate()
-
-      const filtered = rows.filter(r => {
-        const d = new Date(r.booking_time)
-        if (isNaN(d)) return false
-        return (
-          d.getFullYear() === yyyy &&
-          d.getMonth() + 1 === mm &&
-          d.getDate() === dd
-        )
-      })
-
-      setTomorrowReservations(filtered)
-    }).catch(e => console.warn("載入明日預約失敗", e))
+    getTomorrowReservations(uid)
+      .then(rows => setTomorrowReservations(rows))
+      .catch(e => console.warn("載入明日預約失敗", e))
   }, [user])
-
-  // --- 計算距離（Haversine formula） ---
-  function haversine(lat1, lon1, lat2, lon2) {
-    const R = 6371e3 // 地球半徑（公尺）
-    const toRad = (d) => (d * Math.PI) / 180
-    const φ1 = toRad(lat1), φ2 = toRad(lat2)
-    const Δφ = toRad(lat2 - lat1)
-    const Δλ = toRad(lon2 - lon1)
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-    return R * c
-  }
-
-  // --- 取得附近站點 ---
-  async function handleNearbyStops() {
-    try {
-      setLocationError('')
-      if (!navigator.geolocation) {
-        setLocationError('瀏覽器不支援定位功能')
-        return
-      }
-      navigator.geolocation.getCurrentPosition(async (pos) => {
-        const { latitude, longitude } = pos.coords
-        const stations = await getStations()
-        const withDist = stations.map(s => ({
-          ...s,
-          distance: haversine(latitude, longitude, s.lat, s.lng)
-        }))
-        const nearest = withDist.sort((a, b) => a.distance - b.distance).slice(0, 5)
-        setNearbyStops(nearest)
-      }, (err) => {
-        setLocationError('定位失敗：' + err.message)
-      })
-    } catch (e) {
-      setLocationError('錯誤：' + e.message)
-    }
-  }
 
   return (
     <main className="container">
-      {/* 搜尋區塊 */}
+      {/* 🔎 搜尋區 */}
       <section className="search-section">
-        <div
-          className="search-input"
-          role="button"
-          tabIndex={0}
-          onClick={() => onAction('搜尋框')}
-        >
-          搜尋路線、站點或目的地
-        </div>
+        {!searchOpen ? (
+          <div
+            className="search-input"
+            role="button"
+            tabIndex={0}
+            onClick={() => setSearchOpen(true)}
+            onKeyDown={(e) => e.key === 'Enter' && setSearchOpen(true)}
+          >
+            搜尋路線、站點或目的地
+          </div>
+        ) : (
+          <div className="search-input" style={{ padding: 10 }}>
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="輸入路線名稱關鍵字"
+              className="search-field"
+              onKeyDown={(e) => { if (e.key === 'Escape') setSearchOpen(false) }}
+            />
+            <div className="search-suggestions">
+              {allRoutes && query.trim() !== '' ? (
+                allRoutes
+                  .filter((r) => (r.name || '').toLowerCase().includes(query.trim().toLowerCase()))
+                  .slice(0, 10)
+                  .map((r) => (
+                    <div
+                      key={r.key}
+                      className="suggest-item"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => { setSearchOpen(false); onNavigateRoutes && onNavigateRoutes() }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { setSearchOpen(false); onNavigateRoutes && onNavigateRoutes() } }}
+                    >
+                      <div className="suggest-name">{r.name}</div>
+                      <div className="muted small">{r.direction}</div>
+                    </div>
+                  ))
+              ) : (
+                <div className="muted small">輸入關鍵字以搜尋路線</div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button className="btn" onClick={() => setSearchOpen(false)}>取消</button>
+              <button className="btn btn-blue" onClick={() => onNavigateRoutes && onNavigateRoutes()}>查看全部路線</button>
+            </div>
+          </div>
+        )}
+
         <div className="search-actions">
-          <button className="btn btn-blue" onClick={handleNearbyStops}>附近站點</button>
-          <button className="btn btn-orange" onClick={() => onAction('常用路線')}>常用路線</button>
+          <button className="btn btn-blue" onClick={() => onAction('附近站點')}>附近站點</button>
+          <button className="btn btn-orange" onClick={() => onNavigateRoutes && onNavigateRoutes()}>常用路線</button>
         </div>
       </section>
 
-      {/* 定位錯誤 */}
-      {locationError && (
-        <div className="small" style={{ color: 'red', marginTop: 8 }}>{locationError}</div>
-      )}
-
-      {/* 附近站點結果 */}
-      {nearbyStops.length > 0 && (
-        <section className="card">
-          <div className="card-title"><span>最近的 5 個站點</span></div>
-          <div className="card-body">
-            {nearbyStops.map(s => (
-              <div key={s.id} className="item">
-                <div>{s.name}</div>
-                <div className="small muted">
-                  {s.address} ・ 距離 {(s.distance/1000).toFixed(2)} km
+      {/* 🚌 即時到站 */}
+      <section className="card">
+        <div className="card-title">
+          <span>即時到站</span>
+          <button
+            className="link-btn"
+            onClick={() => { setRefreshing(true); setTick((t) => t + 1) }}
+            disabled={refreshing}
+          >{refreshing ? '更新中…' : '更新'}</button>
+        </div>
+        <div className="arrival-list">
+          {loading && <div className="muted small">載入中…</div>}
+          {error && <div className="muted small" style={{ color: '#c25' }}>{error}</div>}
+          {!loading && arrivals.map((a) => (
+            <div
+              key={a.key}
+              className={`arrival-item arrival-item--tight ${pressedKey === a.key ? 'is-pressed' : ''}`}
+              role="button"
+              tabIndex={0}
+              onPointerDown={() => setPressedKey(a.key)}
+              onPointerUp={() => setPressedKey(null)}
+              onPointerCancel={() => setPressedKey(null)}
+              onPointerLeave={() => setPressedKey(null)}
+              onClick={() => onAction(`${a.route} ${a.directionLabel} ${a.stop} - ${a.eta}`)}
+              onKeyDown={(e) => e.key === 'Enter' && onAction(`${a.route} ${a.directionLabel} ${a.stop} - ${a.eta}`)}
+            >
+              <div className="arrival-left arrival-left--nowrap">
+                <div className="route-line">
+                  <div className="route-name route-name--wrap">{a.route}</div>
+                  <div className="direction">{a.directionLabel}</div>
                 </div>
+                <div className="arrival-stop muted">{a.stop}</div>
               </div>
-            ))}
-          </div>
-        </section>
-      )}
+              <div className="arrival-right">
+                <div className="eta eta--right">{a.status} {a.eta ? `• ${a.eta}` : ''}</div>
+              </div>
+            </div>
+          ))}
+          {!loading && arrivals.length === 0 && !error && (
+            <div className="muted small">暫無即將到站資訊</div>
+          )}
+        </div>
+      </section>
 
-      {/* 明日預約區塊 */}
-      {tomorrowReservations.length > 0 && (
-        <section className="card">
-          <div className="card-title"><span>明日預約</span></div>
+      {/* 📅 明日預約 */}
+      <section className="card">
+        <div className="card-title"><span>明日預約</span></div>
+        {tomorrowReservations.length > 0 ? (
           <div className="card-body">
-            {tomorrowReservations.map(r => (
+            {tomorrowReservations.map((r) => (
               <div key={r.reservation_id} className="item">
                 <div>{r.booking_start_station_name} → {r.booking_end_station_name}</div>
-                <div className="small muted">{r.booking_time} ・ {r.booking_number} 人</div>
+                <div className="small muted">{r.booking_time} ・ {r.booking_number}人</div>
               </div>
             ))}
           </div>
-        </section>
-      )}
+        ) : (
+          <div className="card-body center-vertical">
+            <div className="muted">尚無明日預約</div>
+            <button className="btn btn-block btn-blue mt-12" onClick={() => onAction('新增預約')}>新增預約</button>
+          </div>
+        )}
+      </section>
 
-      {/* 這裡還可以放即時到站卡片與公告 */}
+      {/* 📢 服務公告 */}
+      <section className="card">
+        <div className="card-title"><span>服務公告</span></div>
+        <div className="announcement">
+          <div className="announce-item" role="button" tabIndex={0} onClick={() => onAction('新路線開通')}>
+            <strong>新路線開通</strong>
+            <div className="muted small">202 路線新增內湖科技園區站點，提供更便利的交通服務。</div>
+          </div>
+          <div className="announce-item" role="button" tabIndex={0} onClick={() => onAction('服務調整通知')}>
+            <strong>服務調整通知</strong>
+            <div className="muted small">因應天候因素，部分路線班次可能延誤，請耐心等候。</div>
+          </div>
+        </div>
+      </section>
     </main>
   )
 }

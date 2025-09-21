@@ -63,27 +63,6 @@ export async function getRouteStops(routeId, direction) {
 }
 
 // Bind contacts (phone + email). Backend may not exist yet; handle 404 gracefully.
-export async function bindContacts({ username, phone, email }) {
-  try {
-    const res = await fetch(`${BASE}/profile/bind_contacts`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ username, phone, email }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data?.detail || `Bind failed: ${res.status}`)
-    return { ok: true, data }
-  } catch (e) {
-    console.warn('[bindContacts] backend unavailable, falling back to localStorage:', e)
-    try {
-      const key = `hb_contacts_${username || 'user'}`
-      localStorage.setItem(key, JSON.stringify({ phone, email, ts: Date.now() }))
-      return { ok: true, local: true }
-    } catch {}
-    return { ok: false, error: String(e.message || e) }
-  }
-  
-}
 
 // --- Stations (Hualien) ---
 // ?? /yo_hualien ??暺???
@@ -138,45 +117,18 @@ export async function cancelReservation(reservationId, cancelReason) {
   return data;
 }
 
-
-
-export async function createReservation(payload) {
-  // 雿?敺垢 FastAPI ?賢??嚗雿輻 Body/Form嚗??身 expects Query ?
-  // ?迨?寞?隞?QueryString ?喲?嚗ethod 蝬剜? POST
-  const params = new URLSearchParams()
-  Object.entries(payload || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null) params.append(k, String(v))
-  })
-  const url = `${BASE}/reservations?${params.toString()}`
-  const res = await fetch(url, {
-    method: 'POST',
+export async function getTomorrowReservations(userId) {
+  console.log("[API] getTomorrowReservations called with", userId)
+  const res = await fetch(`${BASE}/reservations/tomorrow?user_id=${encodeURIComponent(userId)}`, {
     headers: { accept: 'application/json' },
   })
+  console.log("[API] fetch done, status=", res.status)
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.detail || `Create failed: ${res.status}`)
-  return data
-}
+  console.log("[API] response json:", data)
+  if (!res.ok) throw new Error(`Failed to load tomorrow reservations: ${res.status}`)
 
-export async function getReservation(reservationId) {
-  const res = await fetch(`${BASE}/reservations/${encodeURIComponent(reservationId)}`, {
-    headers: { accept: 'application/json' },
-  })
-  if (!res.ok) throw new Error(`Get failed: ${res.status}`)
-  return await res.json()
-}
-
-export async function updateReservation(reservationId, fields) {
-  const params = new URLSearchParams()
-  Object.entries(fields || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null) params.append(k, String(v))
-  })
-  const res = await fetch(`${BASE}/reservations/${encodeURIComponent(reservationId)}`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-    body: params.toString(),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.detail || `Update failed: ${res.status}`)
-  return data
+  if (Array.isArray(data?.sql)) return data.sql
+  if (Array.isArray(data?.reservations)) return data.reservations
+  return []
 }
 

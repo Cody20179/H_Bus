@@ -3,11 +3,24 @@ import React, { useEffect, useMemo, useState } from 'react'
 import stations from '../data/stations' // CSV 轉檔的本地資料（作為失敗備援）
 import RouteDetail from '../components/RouteDetail'
 import { getRoutes } from '../services/api'
+import { useParams } from 'react-router-dom'
 
 export default function RoutesPage() {
   const [routes, setRoutes] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const { routeId, stopOrder } = useParams()
+  const [highlightStop, setHighlightStop] = useState(null)
+
+  useEffect(() => {
+    if (routes.length > 0 && routeId) {
+      const found = routes.find(r => String(r.id) === String(routeId))
+      if (found) {
+        setSelected(found)
+        if (stopOrder) setHighlightStop(Number(stopOrder))
+      }
+    }
+  }, [routes, routeId, stopOrder])
 
   // 優先從 API 載入；若失敗則退回本地 stations 資料彙整
   useEffect(() => {
@@ -90,6 +103,7 @@ export default function RoutesPage() {
       {selected && (
         <RouteDetail
           route={selected}
+          highlightStop={highlightStop}
           onClose={() => setSelected(null)}
         />
       )}

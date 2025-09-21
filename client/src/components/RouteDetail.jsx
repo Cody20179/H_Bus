@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import stations from '../data/stations'
 import { getRouteStops } from '../services/api'
 
-export default function RouteDetail({ route, onClose }) {
+export default function RouteDetail({ route, onClose, highlightStop }) {
   // API: manage selected direction + fetched stops
   const [selectedDir, setSelectedDir] = useState('去程')
   const [stops, setStops] = useState([])
@@ -146,28 +146,53 @@ export default function RouteDetail({ route, onClose }) {
               <div className="stops-list">
                 {loading && <div className="muted">載入中…</div>}
                 {error && <div className="muted" style={{ color: '#c25' }}>{error}</div>}
-                {!loading && displayStops.map((s, idx) => (
-                  <div key={`${s.order}-${s.name}-${idx}`} className="stop-item">
-                    <div className="stop-left">
-                      <div className="stop-name">{s.name}</div>
-                      <div className="muted small">第 {s.order ?? (idx + 1)} 站 • 首站起 {s.etaFromStart ?? '-'} 分鐘</div>
-                    </div>
-                    <div className="stop-right">
-                      <span
-                        className="muted small"
-                        style={{
-                          padding: '2px 8px',
-                          borderRadius: 12,
-                          background: s.status.tone === 'green' ? '#e7f7ec' : s.status.tone === 'orange' ? '#fff2e5' : s.status.tone === 'blue' ? '#eaf2ff' : '#f2f3f5',
-                          color: s.status.tone === 'green' ? '#16794c' : s.status.tone === 'orange' ? '#a24a00' : s.status.tone === 'blue' ? '#1d4ed8' : '#6b7280',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {s.status.label}{s.status.etaText ? ` • ${s.status.etaText}` : ''}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+{displayStops.map((s, idx) => {
+  const isHighlight = highlightStop && (s.order === highlightStop)
+  return (
+    <div
+      key={idx}
+      className="stop-item"
+      style={isHighlight ? { border: '2px solid red', borderRadius: '8px' } : {}}
+    >
+      <div className="stop-left">
+        <div className="stop-name">{s.name}</div>
+        <div className="muted small">
+          第 {s.order ?? (idx + 1)} 站 • 首站起 {s.etaFromStart ?? '-'} 分鐘
+        </div>
+      </div>
+      <div className="stop-right">
+        <span
+          className="muted small"
+          style={{
+            padding: '2px 8px',
+            borderRadius: 12,
+            background:
+              s.status.tone === 'green'
+                ? '#e7f7ec'
+                : s.status.tone === 'orange'
+                ? '#fff2e5'
+                : s.status.tone === 'blue'
+                ? '#eaf2ff'
+                : '#f2f3f5',
+            color:
+              s.status.tone === 'green'
+                ? '#16794c'
+                : s.status.tone === 'orange'
+                ? '#a24a00'
+                : s.status.tone === 'blue'
+                ? '#1d4ed8'
+                : '#6b7280',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {s.status.label}
+          {s.status.etaText ? ` • ${s.status.etaText}` : ''}
+        </span>
+      </div>
+    </div>
+  )
+})}
+
                 {!loading && displayStops.length === 0 && !error && (
                   <div className="muted">此方向目前無站點資料</div>
                 )}
@@ -179,28 +204,53 @@ export default function RouteDetail({ route, onClose }) {
             <RouteMap stops={staticStopsForMap} />
           ) : (
             <div className="stops-list">
-              {displayStops.map((s, idx) => (
-                <div key={idx} className="stop-item">
-                  <div className="stop-left">
-                    <div className="stop-name">{s.name}</div>
-                    <div className="muted small">第 {s.order ?? (idx + 1)} 站 • 首站起 {s.etaFromStart ?? '-'} 分鐘</div>
-                  </div>
-                  <div className="stop-right">
-                    <span
-                      className="muted small"
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: 12,
-                        background: s.status.tone === 'green' ? '#e7f7ec' : s.status.tone === 'orange' ? '#fff2e5' : s.status.tone === 'blue' ? '#eaf2ff' : '#f2f3f5',
-                        color: s.status.tone === 'green' ? '#16794c' : s.status.tone === 'orange' ? '#a24a00' : s.status.tone === 'blue' ? '#1d4ed8' : '#6b7280',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {s.status.label}{s.status.etaText ? ` • ${s.status.etaText}` : ''}
-                    </span>
-                  </div>
-                </div>
-              ))}
+ {displayStops.map((s, idx) => {
+  const isHighlight = highlightStop && (s.order === highlightStop)
+  return (
+    <div
+      key={idx}
+      className="stop-item"
+      style={isHighlight ? { border: '2px solid red', borderRadius: '8px' } : {}}
+    >
+      <div className="stop-left">
+        <div className="stop-name">{s.name}</div>
+        <div className="muted small">
+          第 {s.order ?? (idx + 1)} 站 • 首站起 {s.etaFromStart ?? '-'} 分鐘
+        </div>
+      </div>
+      <div className="stop-right">
+        <span
+          className="muted small"
+          style={{
+            padding: '2px 8px',
+            borderRadius: 12,
+            background:
+              s.status.tone === 'green'
+                ? '#e7f7ec'
+                : s.status.tone === 'orange'
+                ? '#fff2e5'
+                : s.status.tone === 'blue'
+                ? '#eaf2ff'
+                : '#f2f3f5',
+            color:
+              s.status.tone === 'green'
+                ? '#16794c'
+                : s.status.tone === 'orange'
+                ? '#a24a00'
+                : s.status.tone === 'blue'
+                ? '#1d4ed8'
+                : '#6b7280',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {s.status.label}
+          {s.status.etaText ? ` • ${s.status.etaText}` : ''}
+        </span>
+      </div>
+    </div>
+  )
+})}
+
               {displayStops.length === 0 && <div className="muted">找不到此路線的站點資料</div>}
             </div>
           )

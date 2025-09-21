@@ -184,13 +184,7 @@ def _unauthorized_response(request: Request, detail: str):
     # API/fetch：回 401 並附上登入入口，讓前端可決定導向
     raise HTTPException(status_code=401, detail={"detail": detail, "login_url": login_url})
     
-"""
-For App Client
-"""
-# @app.get("/", tags=["meta"], summary="根路由")
-# def read_root():
-#     """根路由，返回簡單的歡迎信息"""
-#     return {"hello": "world"}
+# For App Client
 
 @app.get("/healthz", tags=["meta"], summary="健康檢查")
 def healthz():
@@ -290,7 +284,6 @@ def yo_hualien():
     df = pd.DataFrame(rows, columns=columns)
     return df.to_dict(orient="records") 
 
-
 @api.post("/reservation", tags=["Client"], summary="送出預約")
 def push_reservation(req: Define.ReservationReq):
     sql = f"""
@@ -320,6 +313,23 @@ def show_reservations(user_id: str):
 
     return {"status": "success", "sql": results}
 
+@api.get("/reservations/tomorrow", tags=["Client"], summary="預約查詢")
+def tomorrow_reservations(user_id: str):
+    sql = f"""
+    SELECT reservation_id, user_id, booking_time, booking_number, 
+           booking_start_station_name, booking_end_station_name,
+           review_status, payment_status
+    FROM reservation where 
+    review_status = 'approved' AND
+    DATE(booking_time) = DATE_ADD(CURDATE(), INTERVAL 1 DAY) AND
+    user_id = '{user_id}'
+    """
+    print("查詢明日預約 user_id=", user_id)
+    print("SQL=", sql)
+    results = MySQL_Run(sql)
+
+    return {"status": "success", "sql": results}
+
 @api.post("/reservations/Canceled", tags=["Client"], summary="取消預約")
 def Cancled_reservation(req: Define.CancelReq):
     sql = f"""
@@ -331,9 +341,8 @@ def Cancled_reservation(req: Define.CancelReq):
     Results = MySQL_Run(sql)
     return {"status": "success", "sql": Results}
 
-"""
-For Client Users
-"""
+# For Client Users
+
 @api.post("/users/update_mail", tags=["Users"], summary="更新使用者Email")
 def update_mail(user_id: int, email: str):
     sql = f"""
@@ -356,10 +365,8 @@ def update_phone(user_id: int, phone: str):
     results = MySQL_Run(sql)
     return {"status": "success", "sql": sql, "results": results}
 
+# For Line Login API
 
-"""
-For Line Login API
-"""
 @app.get("/auth/line/login", tags=["Auth"], summary="Line 登入")
 def login(request: Request):
     force = request.query_params.get("force")
