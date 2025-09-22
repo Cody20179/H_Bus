@@ -21,19 +21,13 @@ from email.mime.multipart import MIMEMultipart
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
-
-# === 載入環境變數（建議使用 .env 管理） ===
-# .env 範例：
-# EMAIL_ADDRESS=your@gmail.com
-# EMAIL_PASSWORD=your_16_chars_app_password
+from MySQL import MySQL_Run 
+# === 載入環境變數 ===
 load_dotenv()
 
 SENDER_EMAIL = os.getenv("EMAIL_ADDRESS", "tailin1125@gmail.com")
-SENDER_PASS  = os.getenv("EMAIL_PASSWORD", "ceaa fcfl wubf mjss")  # 建議改為 .env
+SENDER_PASS  = os.getenv("EMAIL_PASSWORD", "ceaa fcfl wubf mjss")
 TZ = ZoneInfo("Asia/Taipei")
-
-# === 你專案內的 MySQL 執行器 ===
-from MySQL import MySQL_Run  # 確保路徑/模組名正確
 
 # ========== 信件樣板 ==========
 MAIL_SUBJECT = "【乘車提醒】您今日的預約資訊"
@@ -46,7 +40,6 @@ MAIL_TEXT_TEMPLATE = """親愛的乘客您好，
 
 — 花蓮小巴預約系統
 """
-
 # ========== 郵件發送 ==========
 def send_email(receiver_email: str, subject: str, text: str):
     message = MIMEMultipart("alternative")
@@ -110,7 +103,6 @@ def build_and_send_emails():
         print(f"[{datetime.now(TZ):%Y-%m-%d %H:%M:%S}] 今日無符合條件的預約。")
         return
 
-    # 確保必要欄位存在
     required_cols = {
         "email", "reservation_id", "booking_time", "booking_number",
         "booking_start_station_name", "booking_end_station_name"
@@ -120,19 +112,13 @@ def build_and_send_emails():
         print(f"[{datetime.now(TZ):%Y-%m-%d %H:%M:%S}] 结果少欄位: {missing}")
         return
 
-    # 依 email 分組
     grouped = df.groupby("email", dropna=True)
 
     success, fail = 0, 0
     for email, g in grouped:
-        # 針對同一位使用者可能有多筆預約
         lines = []
         for _, r in g.iterrows():
-            # booking_time 轉可讀
             bt = str(r["booking_time"])
-            # 若是 ISO 格式字串，可截掉秒後面的部分
-            # 你也可以用 pandas 轉型後再格式化：
-            # bt = pd.to_datetime(r["booking_time"]).strftime("%Y-%m-%d %H:%M")
             line = (
                 f"- 預約編號: {r['reservation_id']}｜"
                 f"時間: {bt}｜"
@@ -172,13 +158,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    # import threading
-
-    # def wait_for_exit(scheduler):
-    #     input("按 Enter 結束排程...\n")
-    #     scheduler.shutdown()
-
-    # scheduler = BlockingScheduler(timezone=TZ)
-    # scheduler.add_job(build_and_send_emails, CronTrigger(hour=8, minute=0))
-    # threading.Thread(target=wait_for_exit, args=(scheduler,), daemon=True).start()
-    # scheduler.start()
