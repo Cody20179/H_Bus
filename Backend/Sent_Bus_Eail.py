@@ -25,8 +25,8 @@ from MySQL import MySQL_Run
 # === 載入環境變數 ===
 load_dotenv()
 
-SENDER_EMAIL = os.getenv("EMAIL_ADDRESS", "tailin1125@gmail.com")
-SENDER_PASS  = os.getenv("EMAIL_PASSWORD", "ceaa fcfl wubf mjss")
+SENDER_EMAIL = os.getenv("Sender_email", "tailin1125@gmail.com")
+SENDER_PASS  = os.getenv("Password_email", "ceaa fcfl wubf mjss")
 TZ = ZoneInfo("Asia/Taipei")
 
 # ========== 信件樣板 ==========
@@ -143,10 +143,10 @@ def build_and_send_emails():
     print(f"[{datetime.now(TZ):%Y-%m-%d %H:%M:%S}] 寄送完成：成功 {success} 位、失敗 {fail} 位。")
 
 # ========== 主程式：每天 08:00 自動執行 ==========
-def main():
+def main(hour=16, minute=50):
     scheduler = BlockingScheduler(timezone=TZ)
     # 每天 08:00 觸發
-    scheduler.add_job(build_and_send_emails, CronTrigger(hour=16, minute=50), id="daily_0800_send")
+    scheduler.add_job(build_and_send_emails, CronTrigger(hour, minute), id="daily_0800_send")
 
     print("排程已啟動（Asia/Taipei）。每天 08:00 寄送今日乘車提醒。")
     print("按 Ctrl+C 可停止。")
@@ -157,4 +157,4 @@ def main():
         print("排程停止。")
 
 if __name__ == "__main__":
-    main()
+    main(hour=16, minute=50)

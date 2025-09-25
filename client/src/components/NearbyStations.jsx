@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import stations from '../data/stations'
+import { getStations } from '../services/api'   // ✅ 改成從 API 抓取站點
 
 function haversine(a, b) {
   const toRad = (d) => (d * Math.PI) / 180
@@ -23,25 +23,39 @@ export default function NearbyStations({ onClose }) {
   const overlayRef = useRef(null)
   const [selectedId, setSelectedId] = useState(null)
 
-  const nearest = useMemo(() => {
-  const me = { lat: loc.lat, lng: loc.lng }
-  return stations
-    .map((s, idx) => ({
-      id: `${s['路徑名稱']}-${s['路程']}-${s['站次']}-${idx}`,
-      name: s['站點'] || s['位置'] || `第${(s['站次'] ?? idx + 1)}站`,
-      route: s['路徑名稱'] || '',
-      dir: s['路程'] || '',
-      lat: Number(s['去程緯度'] ?? s['緯度'] ?? 0),
-      lng: Number(s['去程經度'] ?? s['經度'] ?? 0),
-    }))
-    .filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lng))
-    .map((x) => ({ ...x, dist: haversine(me, x) }))
-    .sort((a, b) => a.dist - b.dist)
-    .slice(0, 5) // 只取前 5 筆
-  }, [loc])
+  // ✅ 站點資料
+  const [stations, setStations] = useState([])
 
   useEffect(() => {
-    // 取得目前位置（高精度，但設 timeout 以免卡住）
+    getStations()
+      .then((data) => {
+        console.log("[NearbyStations] API 取得站點:", data)
+        setStations(data)
+      })
+      .catch((e) => {
+        console.warn("載入站點失敗", e)
+        setErr("無法載入站點，請稍後再試")
+      })
+  }, [])
+
+  const nearest = useMemo(() => {
+    const me = { lat: loc.lat, lng: loc.lng }
+    return stations
+      .map((s, idx) => ({
+        id: s.id || `${s.name}-${idx}`,
+        name: s.name,
+        route: s._raw?.route_name || '',
+        dir: s._raw?.direction || '',
+        lat: Number(s.lat),
+        lng: Number(s.lng),
+      }))
+      .filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lng))
+      .map((x) => ({ ...x, dist: haversine(me, x) }))
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 5) // 取最近 5 筆
+  }, [loc, stations])
+
+  useEffect(() => {
     if (!('geolocation' in navigator)) {
       setErr('此裝置不支援定位，改用預設位置')
       return
@@ -61,14 +75,12 @@ export default function NearbyStations({ onClose }) {
   }, [])
 
   useEffect(() => {
-    // 動態載入 Leaflet
     import('leaflet').then((mod) => {
       if (!window.L) window.L = mod
       setReady(true)
     })
   }, [])
 
-  // 允許使用 Esc 關閉
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
     window.addEventListener('keydown', onKey)
@@ -95,29 +107,6 @@ export default function NearbyStations({ onClose }) {
     me.bindTooltip('我的位置', { direction: 'top' })
     mapRef.current.setView([loc.lat, loc.lng], 15)
   }, [ready, loc])
-
-  // 在點擊地圖時，選取最近的站點並捲動到清單
-  useEffect(() => {
-    if (!ready || !mapRef.current) return
-    const L = window.L
-    const handler = (e) => {
-      const { latlng } = e
-      const target = nearest
-        .map((s) => ({ s, d: haversine({ lat: latlng.lat, lng: latlng.lng }, { lat: s.lat, lng: s.lng }) }))
-        .sort((a, b) => a.d - b.d)[0]
-      if (target && target.s) {
-        setSelectedId(target.s.id)
-        try {
-          const el = document.querySelector(`[data-station-id="${target.s.id}"]`)
-          el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        } catch {}
-      }
-    }
-    mapRef.current.on('click', handler)
-    return () => { try { mapRef.current.off('click', handler) } catch {} }
-  }, [ready, nearest])
-
-
 
   useEffect(() => {
     if (!ready || !mapRef.current) return

@@ -1,6 +1,5 @@
-// src/pages/Routes.jsx
 import React, { useEffect, useMemo, useState } from 'react'
-import stations from '../data/stations' // CSV 轉檔的本地資料（作為失敗備援）
+// import stations from '../data/stations'
 import RouteDetail from '../components/RouteDetail'
 import { getRoutes } from '../services/api'
 import { useParams } from 'react-router-dom'
@@ -22,7 +21,6 @@ export default function RoutesPage() {
     }
   }, [routes, routeId, stopOrder])
 
-  // 優先從 API 載入；若失敗則退回本地 stations 資料彙整
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -34,7 +32,6 @@ export default function RoutesPage() {
       } catch (e) {
         console.warn('API 取得路線失敗，改用本地資料：', e)
         if (!cancelled) {
-          // 依「路徑名稱 + 路程」聚合出路線列表
           const fallback = buildRoutesFromStations(stations).map((r) => ({
             ...r,
             source: 'static',
@@ -55,7 +52,6 @@ export default function RoutesPage() {
     rows.forEach((row) => {
       const name = row['路徑名稱'] || '未命名路線'
       const direction = row['路程'] || ''
-      // 使用 name + direction 當 key（有去/回時可分）
       const key = `${name} ${direction}`.trim()
       if (!map.has(key)) {
         map.set(key, {
@@ -99,7 +95,6 @@ export default function RoutesPage() {
         ))}
       </div>
 
-      {/* Route detail area (simple overlay / panel) */}
       {selected && (
         <RouteDetail
           route={selected}

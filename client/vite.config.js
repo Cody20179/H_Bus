@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                 },
                 '/auth': {
-                    target: env.VITE_AUTH_BASE_URL || 'https://95bb222f1f3d.ngrok-free.app',
+                    target: env.VITE_AUTH_BASE_URL || 'https://fb247265dab7.ngrok-free.app',
                     changeOrigin: true,
                     secure: false,
                 },

@@ -1,7 +1,4 @@
-﻿// Centralized API client for the frontend.
-// Dev: use Vite proxy with path `/api`.
-// Prod (same-origin deploy): default to '' unless VITE_API_BASE_URL is set.
-const envBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || ''
+﻿const envBase = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || ''
 const BASE = (envBase?.trim?.() || (import.meta.env?.DEV ? '/api' : ''))
 
 export async function getRoutes() {
@@ -15,7 +12,7 @@ export async function getRoutes() {
   const data = await res.json()
 
   return data
-    .filter((r) => r.status !== 0) // ??status ??0 ???桀???
+    .filter((r) => r.status !== 0)
     .map((r) => ({
       id: r.route_id,
       name: r.route_name,
@@ -31,9 +28,7 @@ export async function getRoutes() {
     }))
 }
 
-
 export async function getRouteStops(routeId, direction) {
-  // Backend expects JSON body: { route_id, direction }
   const res = await fetch(`${BASE}/Route_Stations`, {
     method: 'POST',
     headers: {
@@ -47,7 +42,7 @@ export async function getRouteStops(routeId, direction) {
   }
   /** @type {Array} */
   const data = await res.json()
-  return data
+  const sorted = data
     .map((s) => ({
       routeId: s.route_id,
       routeName: s.route_name,
@@ -55,17 +50,23 @@ export async function getRouteStops(routeId, direction) {
       stopName: s.stop_name,
       latitude: s.latitude,
       longitude: s.longitude,
-      etaFromStart: s.eta_from_start,
+      etaFromStart: Number(s.eta_from_start) || 0,
       order: s.stop_order,
       createdAt: s.created_at,
     }))
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+  // 加上 etaToHere
+  for (let i = 0; i < sorted.length; i++) {
+    if (i === 0) {
+      sorted[i].etaToHere = 0   // 首站沒有上一站
+    } else {
+      sorted[i].etaToHere = sorted[i].etaFromStart - sorted[i - 1].etaFromStart
+    }
+  }
+  return sorted
 }
 
-// Bind contacts (phone + email). Backend may not exist yet; handle 404 gracefully.
-
-// --- Stations (Hualien) ---
-// ?? /yo_hualien ??暺???
 export async function getStations() {
   const res = await fetch(`${BASE}/yo_hualien`, {
     headers: { accept: 'application/json' },
@@ -74,7 +75,6 @@ export async function getStations() {
     throw new Error(`Failed to load stations: ${res.status}`)
   }
   const data = await res.json()
-  // 甇????蝣箔??詨潮?????蝪⊥? id
   return data
     .filter((s) => Number.isFinite(Number(s.latitude)) && Number.isFinite(Number(s.longitude)))
     .map((s, i) => ({
@@ -94,7 +94,6 @@ export async function getMyReservations(userId) {
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(`Failed to load reservations: ${res.status}`)
-  // 敺垢?桀?? { status, sql }嚗銝?sql ?鞈????
   let rows = []
   if (Array.isArray(data?.reservations)) rows = data.reservations
   else if (Array.isArray(data?.sql)) rows = data.sql
@@ -132,3 +131,14 @@ export async function getTomorrowReservations(userId) {
   return []
 }
 
+export async function getCarPositions() {
+  const res = await fetch(`${BASE}/GIS_About`)
+  const data = await res.json()
+  return Object.keys(data.route).map(i => ({
+    route: data.route[i],
+    X: parseFloat(data.X[i]),
+    Y: parseFloat(data.Y[i]),
+    direction: data.direction[i],
+    currentLocation: data.Current_Loaction[i]
+  }))
+}

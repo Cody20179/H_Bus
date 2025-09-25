@@ -1,28 +1,29 @@
 from fastapi import FastAPI, Request, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from typing import List
-from datetime import datetime
-from pydantic import BaseModel
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 from MySQL import MySQL_Run
+from MySQL import MySQL_Doing
 import pandas as pd
 import secrets, hashlib, urllib.parse, base64, json, time, hmac, os, redis, httpx
 import Define
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 api = APIRouter(prefix='/api')
 
 load_dotenv()
+MySQL_Doing = MySQL_Doing()
+
 app = FastAPI(
     title="H_Bus API",
     version="V0.1.0",
     description="H_Bus 服務的最小 API 範本，含健康檢查與根路由。",
 )
 
-# 加入 CORS 設定
+# === 加入 CORS 設定 ===    
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.ngrok-free\.app|localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|140\.134\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$",
@@ -31,18 +32,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# app.mount("/", StaticFiles(directory="dist", html=True), name="client")
-# api_router = APIRouter(prefix="/api")
-
 # === Redis 初始化 ===
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-BASE_URL = "https://95bb222f1f3d.ngrok-free.app"
-# 允許由環境變數覆蓋預設前端導向網址，並確保為絕對 URL（含協定）
+
+# === URL 相關設定 ===
+BASE_URL = os.getenv("FRONTEND_DEFAULT_URL", "https://fb247265dab7.ngrok-free.app")
 FRONTEND_DEFAULT_URL = f"{BASE_URL}/profile"
 FRONTEND_DEFAULT_HOST = urlparse(FRONTEND_DEFAULT_URL).hostname if FRONTEND_DEFAULT_URL.startswith(('http://', 'https://')) else None
 r = redis.from_url(REDIS_URL, decode_responses=True)
 
-# === LINE 設定 ===
+# === LINE 相關設定 ===
 CHANNEL_ID = os.getenv("LINE_CHANNEL_ID")
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 CALLBACK_PATH = "/auth/line/callback"
@@ -184,8 +183,7 @@ def _unauthorized_response(request: Request, detail: str):
     # API/fetch：回 401 並附上登入入口，讓前端可決定導向
     raise HTTPException(status_code=401, detail={"detail": detail, "login_url": login_url})
     
-# For App Client
-
+# === 前端路線資訊 ===
 @app.get("/healthz", tags=["meta"], summary="健康檢查")
 def healthz():
     """用於監控或負載平衡器的健康檢查端點"""
@@ -204,7 +202,6 @@ def All_Route():
 
 @api.post("/Route_Stations", response_model=List[Define.StationOut], tags=["Client"], summary="所有站點")
 def get_route_stations(q: Define.RouteStationsQuery):
-    # --- 參數化查詢（你的 MySQL_Run 若支援 params，優先這個寫法） ---
     sql = "SELECT * FROM bus_route_stations WHERE route_id = %s"
     params = [q.route_id]
     if q.direction:
@@ -212,10 +209,8 @@ def get_route_stations(q: Define.RouteStationsQuery):
         params.append(q.direction)
 
     try:
-        rows = MySQL_Run(sql, params)  # 若你的 MySQL_Run 不支援 params，就 fallback 用 f-string，但要小心注入
+        rows = MySQL_Run(sql, params)
     except TypeError:
-        # Fallback：有些自寫函式沒有 params 參數
-        # 請務必確認 direction 的字串來源可信
         if q.direction:
             rows = MySQL_Run(f"SELECT * FROM bus_route_stations WHERE route_id = {int(q.route_id)} AND direction = '{q.direction}'")
         else:
@@ -224,14 +219,8 @@ def get_route_stations(q: Define.RouteStationsQuery):
     columns = [c['Field'] for c in MySQL_Run("SHOW COLUMNS FROM bus_route_stations")]
     df = pd.DataFrame(rows, columns=columns)
 
-    # --- 沒資料的處理（擇一：回404 或 回[]）---
     if df.empty:
-        # 選擇一：回空陣列（前端好處理）
         return []
-        # 選擇二：回 404
-        # raise HTTPException(status_code=404, detail=f"route_id={q.route_id} 無站點資料")
-
-    # --- 欄位名稱正規化（把 DB 欄位映射成 API 欄位）---
     col_map = {
         "station_name": "stop_name",
         "stop_name": "stop_name",
@@ -239,41 +228,27 @@ def get_route_stations(q: Define.RouteStationsQuery):
         "eta_from_start": "eta_from_start",
         "order_no": "stop_order",
         "seq": "stop_order",
-        # 你若有 station_id 欄位但不打算輸出，就不要映射
     }
-    # 只 rename 存在的欄位，避免 KeyError
     df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
-    # --- 型別防呆：數值、時間、NaN 轉換 ---
-    # 經緯度
     if "latitude" in df.columns:
         df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
     if "longitude" in df.columns:
         df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
-
-    # 到站時間 / 順序
     if "eta_from_start" in df.columns:
         df["eta_from_start"] = pd.to_numeric(df["eta_from_start"], errors="coerce").astype("Int64")
     if "stop_order" in df.columns:
         df["stop_order"] = pd.to_numeric(df["stop_order"], errors="coerce").astype("Int64")
-
-    # created_at -> datetime（避免 pandas.Timestamp 造成驗證錯誤）
     if "created_at" in df.columns:
         df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce") \
             .apply(lambda x: x.to_pydatetime() if pd.notnull(x) else None)
-
-    # 只保留我們要輸出的欄位（避免多餘欄位觸發驗證錯）
     desired_cols = [
         "route_id", "route_name", "direction", "stop_name",
         "latitude", "longitude", "eta_from_start", "stop_order", "created_at"
     ]
     keep_cols = [c for c in desired_cols if c in df.columns]
     df = df[keep_cols]
-
-    # NaN -> None
     records = df.where(pd.notnull(df), None).to_dict(orient="records")
-
-    # （可選）逐筆建模，能更早在後端發現資料異常
     data: List[Define.StationOut] = [Define.StationOut(**r) for r in records]
     return data
 
@@ -283,6 +258,26 @@ def yo_hualien():
     columns = ["station_name", "address", "latitude", "longitude"]
     df = pd.DataFrame(rows, columns=columns)
     return df.to_dict(orient="records") 
+
+@api.get("/GIS_About", tags=["Client"], summary="取得最新車輛資訊")
+def Get_GIS_About():
+    Results = MySQL_Doing.run("""
+    Select route from car_resource
+    where route != 'None'
+    """)
+
+    print(Results["route"].tolist())
+    Results = MySQL_Doing.run("""
+    SELECT c.route, c.X, c.Y, c.direction, c.Current_Loaction
+    FROM car_backup c
+    JOIN (
+        SELECT route, MAX(seq) AS max_seq
+        FROM car_backup
+        WHERE route IN ('1', '2', '3')
+        GROUP BY route
+    ) t ON c.route = t.route AND c.seq = t.max_seq;
+    """)
+    return Results
 
 @api.post("/reservation", tags=["Client"], summary="送出預約")
 def push_reservation(req: Define.ReservationReq):
@@ -341,8 +336,7 @@ def Cancled_reservation(req: Define.CancelReq):
     Results = MySQL_Run(sql)
     return {"status": "success", "sql": Results}
 
-# For Client Users
-
+# === 使用者更新資訊 ===
 @api.post("/users/update_mail", tags=["Users"], summary="更新使用者Email")
 def update_mail(user_id: int, email: str):
     sql = f"""
@@ -365,8 +359,7 @@ def update_phone(user_id: int, phone: str):
     results = MySQL_Run(sql)
     return {"status": "success", "sql": sql, "results": results}
 
-# For Line Login API
-
+# === LINE 登入與使用者權限相關API資訊 ===
 @app.get("/auth/line/login", tags=["Auth"], summary="Line 登入")
 def login(request: Request):
     force = request.query_params.get("force")
@@ -493,7 +486,7 @@ async def me(request: Request):
 app.include_router(api)
 app.mount('/', StaticFiles(directory='dist', html=True), name='client')
 
-# SPA deep-link fallback: serve index.html for unknown HTML routes (exclude API/auth)
+# === FastAPI 把 API 跟前端打包 ===
 @app.exception_handler(StarletteHTTPException)
 async def spa_fallback(request: Request, exc: StarletteHTTPException):
     try:
@@ -511,10 +504,4 @@ async def spa_fallback(request: Request, exc: StarletteHTTPException):
                     return FileResponse(index_path)
     except Exception:
         pass
-    # default behavior
     raise exc
-
-# if __name__ == "__main__":
-#     uvicorn Server:app --host 0.0.0.0 --port 8500 --reload
-#       uvicorn Login:app --host 0.0.0.0 --port 8000 --reload
-#     uvicorn.run("Server:app", host="0.0.0.0", port=8500, reload=True)

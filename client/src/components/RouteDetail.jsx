@@ -1,21 +1,18 @@
-// src/components/RouteDetail.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import stations from '../data/stations'
 import { getRouteStops } from '../services/api'
+import { getCarPositions } from '../services/api'
 
 export default function RouteDetail({ route, onClose, highlightStop }) {
-  // API: manage selected direction + fetched stops
   const [selectedDir, setSelectedDir] = useState('去程')
   const [stops, setStops] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [viewMode, setViewMode] = useState('list') // 'list' | 'map'
-
+  const [viewMode, setViewMode] = useState('list')
   const isStatic = route.source === 'static'
   const isSingleDirection = route.direction && route.direction.includes('單向')
-
-  // A lightweight timer to refresh simulated statuses
   const [tick, setTick] = useState(0)
+  const [cars, setCars] = useState([])
+
   useEffect(() => {
     const id = setInterval(() => setTick((t) => (t + 1) % 1_000_000), 15000)
     return () => clearInterval(id)
@@ -23,7 +20,6 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
 
   useEffect(() => {
     if (!isStatic) {
-      // For API routes, (re)load when route or selectedDir changes
       let cancelled = false
       setLoading(true)
       setError(null)
@@ -47,7 +43,30 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     }
   }, [route, selectedDir, isStatic])
 
-  // 靜態資料情況：依名稱/路程過濾站點
+  useEffect(() => {
+    let cancelled = false
+    async function loadCars() {
+      try {
+        const data = await getCarPositions()
+        console.log("[GIS_About] API 回傳資料:", data)
+        if (!cancelled) {
+          setCars([...data])      // 強制建立新陣列 → 觸發 re-render
+          setTick((t) => t + 1)   // 額外觸發 refresh
+        }
+      } catch (e) {
+        console.warn("載入即時車輛位置失敗", e)
+      }
+    }
+    loadCars()
+    const id = setInterval(() => {
+      console.log("[GIS_About] 重新抓取車輛位置...")
+      loadCars()
+    }, 5000) // 每 15 秒更新
+    return () => { cancelled = true; clearInterval(id) }
+  }, [])
+
+
+
   const list = useMemo(() => {
     if (!isStatic) return []
     return stations
@@ -63,41 +82,33 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
       })
   }, [route, isStatic])
 
-  // Normalize stops for display and compute a simulated real-time status
-  const displayStops = useMemo(() => {
-    // Build a unified list with: name, order, etaFromStart
-    const unified = isStatic
-      ? list.map((s, idx) => ({
-          name: s['站點'] || s['位置'] || `第${idx + 1}站`,
-          order: Number(s['站次'] ?? (idx + 1)) || (idx + 1),
-          etaFromStart: Number(s['首站到此站時間'] ?? (idx * 3)) || (idx * 3),
+      const displayStops = useMemo(() => {
+      const unified = (isStatic ? list : stops).map((s, idx) => ({
+        name: s.stopName || s['站點'] || `第${idx+1}站`,
+        order: Number(s.order ?? s['站次'] ?? (idx+1)),
+        latitude: Number(s.latitude ?? s['去程緯度'] ?? s['緯度']),
+        longitude: Number(s.longitude ?? s['去程經度'] ?? s['經度']),
+        etaFromStart: s.etaFromStart ?? s['首站到此站時間'] ?? null,
+        etaToHere: s.etaToHere ?? null,
+      }))
+
+      const car = cars.find(c => String(c.route) === String(route.id))
+      if (!car) {
+        return unified.map(s => ({
+          ...s,
+          status: { label: "尚無服務", tone: "muted" }
         }))
-      : stops.map((s, idx) => ({
-          name: s.stopName || `第${idx + 1}站`,
-          order: Number(s.order ?? (idx + 1)) || (idx + 1),
-          etaFromStart: Number(s.etaFromStart ?? (idx * 3)) || (idx * 3),
-        }))
+      }
+      
+      return unified.map(s => {
+        if (s.name === car.currentLocation) {
+          return { ...s, status: { label: "到站中", tone: "green" } }
+        }
+        return { ...s, status: { label: car.direction, tone: "blue" } }
+      })
 
-    // Determine cycle length (minutes) based on last stop ETA
-    const lastEta = unified.reduce((m, s) => Math.max(m, s.etaFromStart || 0), 0)
-    const cycle = Math.max(lastEta + 5, unified.length * 3) || 20
-    const nowMin = (Date.now() / 60000) % cycle
+    }, [isStatic, list, stops, cars, route.id])
 
-    const annotate = (eta) => {
-      const delta = eta - nowMin // minutes until arrival
-      if (delta <= -1.0) return { label: '已過站', tone: 'muted', etaText: null }
-      if (delta <= 0.25) return { label: '到站中', tone: 'green', etaText: '0 分鐘' }
-      if (delta <= 2.0) return { label: '即將到站', tone: 'orange', etaText: `${Math.ceil(delta)} 分鐘` }
-      return { label: '等待中', tone: 'blue', etaText: `${Math.ceil(delta)} 分鐘` }
-    }
-
-    return unified
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      .map((s) => ({ ...s, status: annotate(s.etaFromStart) }))
-  // include tick so it recomputes periodically
-  }, [isStatic, list, stops, tick])
-
-  // 將靜態資料轉成 RouteMap 可用格式
   const staticStopsForMap = useMemo(() => {
     if (!isStatic) return []
     return list.map((s, idx) => ({
@@ -127,7 +138,6 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
           </div>
         </div>
 
-        {/* API 路線：顯示方向切換與站點清單 */}
         {!isStatic ? (
           <>
             {!isSingleDirection && (
@@ -146,52 +156,56 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
               <div className="stops-list">
                 {loading && <div className="muted">載入中…</div>}
                 {error && <div className="muted" style={{ color: '#c25' }}>{error}</div>}
-{displayStops.map((s, idx) => {
-  const isHighlight = highlightStop && (s.order === highlightStop)
-  return (
-    <div
-      key={idx}
-      className="stop-item"
-      style={isHighlight ? { border: '2px solid red', borderRadius: '8px' } : {}}
-    >
-      <div className="stop-left">
-        <div className="stop-name">{s.name}</div>
-        <div className="muted small">
-          第 {s.order ?? (idx + 1)} 站 • 首站起 {s.etaFromStart ?? '-'} 分鐘
-        </div>
-      </div>
-      <div className="stop-right">
-        <span
-          className="muted small"
-          style={{
-            padding: '2px 8px',
-            borderRadius: 12,
-            background:
-              s.status.tone === 'green'
-                ? '#e7f7ec'
-                : s.status.tone === 'orange'
-                ? '#fff2e5'
-                : s.status.tone === 'blue'
-                ? '#eaf2ff'
-                : '#f2f3f5',
-            color:
-              s.status.tone === 'green'
-                ? '#16794c'
-                : s.status.tone === 'orange'
-                ? '#a24a00'
-                : s.status.tone === 'blue'
-                ? '#1d4ed8'
-                : '#6b7280',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {s.status.label}
-          {s.status.etaText ? ` • ${s.status.etaText}` : ''}
-        </span>
-      </div>
-    </div>
-  )
-})}
+                              
+                {displayStops.map((s, idx) => {
+                const isHighlight = highlightStop && (s.order === highlightStop)
+                return (
+                  <div
+                    key={idx}
+                    className="stop-item"
+                    style={isHighlight ? { border: '2px solid red', borderRadius: '8px' } : {}}
+                  >
+                    <div className="stop-left">
+                      <div className="stop-name">{s.name}</div>
+                      <div className="muted small">
+                        第 {s.order ?? (idx + 1)} 站 • 首站起 {s.etaFromStart ?? '-'} 分鐘
+                      </div>
+                    </div>
+                    <div className="stop-right">
+<span
+  className="muted small"
+  style={{
+    padding: '2px 8px',
+    borderRadius: 12,
+    background:
+      s.status.tone === 'green'
+        ? '#e7f7ec'
+        : s.status.tone === 'orange'
+        ? '#fff2e5'
+        : s.status.tone === 'blue'
+        ? '#eaf2ff'
+        : '#f2f3f5',
+    color:
+      s.status.tone === 'green'
+        ? '#16794c'
+        : s.status.tone === 'orange'
+        ? '#a24a00'
+        : s.status.tone === 'blue'
+        ? '#1d4ed8'
+        : '#6b7280',
+    whiteSpace: 'nowrap',
+  }}
+>
+  {s.status.label}
+  {s.status.label === '尚需' && s.status.remain !== undefined
+    ? ` ${s.status.remain} 分鐘`
+    : ''}
+</span>
+
+                    </div>
+                  </div>
+                )
+                })}
 
                 {!loading && displayStops.length === 0 && !error && (
                   <div className="muted">此方向目前無站點資料</div>
@@ -219,33 +233,36 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
         </div>
       </div>
       <div className="stop-right">
-        <span
-          className="muted small"
-          style={{
-            padding: '2px 8px',
-            borderRadius: 12,
-            background:
-              s.status.tone === 'green'
-                ? '#e7f7ec'
-                : s.status.tone === 'orange'
-                ? '#fff2e5'
-                : s.status.tone === 'blue'
-                ? '#eaf2ff'
-                : '#f2f3f5',
-            color:
-              s.status.tone === 'green'
-                ? '#16794c'
-                : s.status.tone === 'orange'
-                ? '#a24a00'
-                : s.status.tone === 'blue'
-                ? '#1d4ed8'
-                : '#6b7280',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {s.status.label}
-          {s.status.etaText ? ` • ${s.status.etaText}` : ''}
-        </span>
+<span
+  className="muted small"
+  style={{
+    padding: '2px 8px',
+    borderRadius: 12,
+    background:
+      s.status.tone === 'green'
+        ? '#e7f7ec'
+        : s.status.tone === 'orange'
+        ? '#fff2e5'
+        : s.status.tone === 'blue'
+        ? '#eaf2ff'
+        : '#f2f3f5',
+    color:
+      s.status.tone === 'green'
+        ? '#16794c'
+        : s.status.tone === 'orange'
+        ? '#a24a00'
+        : s.status.tone === 'blue'
+        ? '#1d4ed8'
+        : '#6b7280',
+    whiteSpace: 'nowrap',
+  }}
+>
+  {s.status.label}
+  {s.status.label === '尚需' && s.status.remain !== undefined
+    ? ` ${s.status.remain} 分鐘`
+    : ''}
+</span>
+
       </div>
     </div>
   )
@@ -260,7 +277,19 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
   )
 }
 
-// Leaflet loader and map renderer
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000 // meters
+  const toRad = (d) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) ** 2
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
+
 function useLeaflet() {
   const [ready, setReady] = useState(false)
   useEffect(() => {
@@ -385,25 +414,18 @@ function RouteMap({ stops }) {
       L.marker(p, { icon: icon(label, cls) }).addTo(stopLayer).bindTooltip(`${s.stopName || s.stop_name || '站點'}`, { direction:'top' })
     })
 
-    // Simulate bus location: pick nearest upcoming stop by etaFromStart
-    const times = ordered.map((s, i) => Number(s.etaFromStart ?? s.eta_from_start ?? i*3) || i*3)
-    const lastEta = times.reduce((m, t) => Math.max(m, t), 0)
-    const cycle = Math.max(lastEta + 5, ordered.length * 3) || 20
-    const nowMin = (Date.now() / 60000) % cycle
-    let busIdx = times.findIndex(t => t >= nowMin - 0.25)
-    if (busIdx < 0) busIdx = Math.min(ordered.length-1, 1) // default第二站
-    const busPt = ll[busIdx]
-    if (busPt) {
-      const html = `
-        <div class="bus-wrap">
-          <div class="bus-pulse"></div>
-          <div class="bus-dot"></div>
-          <div class="bus-emoji">🚌</div>
-          <div class="bus-badge">BUS</div>
-        </div>`
-      L.marker(busPt, { icon: L.divIcon({ className:'', html, iconSize:[1,1] }) }).addTo(busLayer)
-      L.circle(busPt, { radius:50, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.08 }).addTo(busLayer)
-    }
+    cars.filter(c => String(c.route) === String(route.id)).forEach(car => {
+    const busPt = [car.Y, car.X]
+    const html = `
+      <div class="bus-wrap">
+        <div class="bus-pulse"></div>
+        <div class="bus-dot"></div>
+        <div class="bus-emoji">🚌</div>
+        <div class="bus-badge">${car.direction}</div>
+      </div>`
+    L.marker(busPt, { icon: L.divIcon({ className:'', html, iconSize:[1,1] }) }).addTo(busLayer)
+    L.circle(busPt, { radius:50, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.08 }).addTo(busLayer)
+  })
   }, [ready, stops])
 
   return (

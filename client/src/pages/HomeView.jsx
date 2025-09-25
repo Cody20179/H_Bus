@@ -1,11 +1,13 @@
 ﻿import React, { useState, useEffect, useRef } from 'react'
 import { getRoutes, getRouteStops, getTomorrowReservations } from '../services/api'
+import { useNavigate } from 'react-router-dom'
 
 export default function HomeView({ onAction, user, onNavigateRoutes }) {
   // 🔹 搜尋相關 state
   const [allRoutes, setAllRoutes] = useState([])
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const navigate = useNavigate()
 
   // 🔹 即時到站相關 state
   const [arrivals, setArrivals] = useState([])
@@ -193,7 +195,7 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
 
         <div className="search-actions">
           <button className="btn btn-blue" onClick={() => onAction('附近站點')}>附近站點</button>
-          <button className="btn btn-orange" onClick={() => onNavigateRoutes && onNavigateRoutes()}>常用路線</button>
+          <button className="btn btn-orange" onClick={() => navigate('/routes')}>常用路線</button>
         </div>
       </section>
 
@@ -243,20 +245,53 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
 
       {/* 📅 明日預約 */}
       <section className="card">
-        <div className="card-title"><span>明日預約</span></div>
+        <div className="card-title">
+          <span>明日預約</span>
+          <div className="muted small" style={{ marginLeft: 8 }}>
+            {tomorrowReservations.length > 0 ? `${tomorrowReservations.length} 筆` : '尚無預約'}
+          </div>
+        </div>
+
         {tomorrowReservations.length > 0 ? (
           <div className="card-body">
-            {tomorrowReservations.map((r) => (
-              <div key={r.reservation_id} className="item">
-                <div>{r.booking_start_station_name} → {r.booking_end_station_name}</div>
-                <div className="small muted">{r.booking_time} ・ {r.booking_number}人</div>
-              </div>
-            ))}
+            {tomorrowReservations.map((r) => {
+              // 防呆：格式化時間為「HH:mm」，若 booking_time 已含日期可視情況調整
+              let timeStr = r.booking_time || ''
+              try {
+                const d = new Date(r.booking_time)
+                if (!Number.isNaN(d.getTime())) {
+                  timeStr = new Intl.DateTimeFormat('zh-TW', { hour: '2-digit', minute: '2-digit' }).format(d)
+                }
+              } catch {}
+              return (
+                <div key={r.reservation_id} className="reservation-row" role="button" tabIndex={0}
+                    onClick={() => onAction && onAction(`查看預約 ${r.reservation_id}`)}>
+                  <div className="res-time">
+                    <div className="res-time-main">{timeStr}</div>
+                    {/* 若想顯示日期可打開下面一行 */}
+                    {/* <div className="res-time-sub">{new Intl.DateTimeFormat('zh-TW', { month: 'numeric', day: 'numeric' }).format(new Date(r.booking_time))}</div> */}
+                  </div>
+
+                  <div className="res-main">
+                    <div className="res-route">{r.booking_start_station_name} <span className="arrow">→</span> {r.booking_end_station_name}</div>
+                    <div className="res-meta muted small">
+                      {r.review_status ? `${r.review_status}` : ''} {r.payment_status ? ` • ${r.payment_status}` : ''}
+                    </div>
+                  </div>
+
+                  <div className="res-count">
+                    <div className="res-count-num">{r.booking_number}</div>
+                    <div className="res-count-label muted small">人</div>
+                  </div>
+                </div>
+              )
+            })}
+            <div style={{ marginTop: 12 }}>
+            </div>
           </div>
         ) : (
           <div className="card-body center-vertical">
             <div className="muted">尚無明日預約</div>
-            <button className="btn btn-block btn-blue mt-12" onClick={() => onAction('新增預約')}>新增預約</button>
           </div>
         )}
       </section>
@@ -265,14 +300,14 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
       <section className="card">
         <div className="card-title"><span>服務公告</span></div>
         <div className="announcement">
-          <div className="announce-item" role="button" tabIndex={0} onClick={() => onAction('新路線開通')}>
+          {/* <div className="announce-item" role="button" tabIndex={0} onClick={() => onAction('新路線開通')}>
             <strong>新路線開通</strong>
             <div className="muted small">202 路線新增內湖科技園區站點，提供更便利的交通服務。</div>
           </div>
           <div className="announce-item" role="button" tabIndex={0} onClick={() => onAction('服務調整通知')}>
             <strong>服務調整通知</strong>
             <div className="muted small">因應天候因素，部分路線班次可能延誤，請耐心等候。</div>
-          </div>
+          </div> */}
         </div>
       </section>
     </main>
