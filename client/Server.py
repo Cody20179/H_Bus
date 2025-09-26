@@ -6,11 +6,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from typing import List
 from urllib.parse import urlparse
 from dotenv import load_dotenv
-from MySQL import MySQL_Run
-from MySQL import MySQL_Doing
+# from Github.小巴的備份耶.Client.Backend.MySQL import MySQL_Doing.run
+from Backend.MySQL import MySQL_Doing
+from Backend import Define
 import pandas as pd
 import secrets, hashlib, urllib.parse, base64, json, time, hmac, os, redis, httpx
-import Define
+
 
 api = APIRouter(prefix='/api')
 
@@ -36,7 +37,7 @@ app.add_middleware(
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # === URL 相關設定 ===
-BASE_URL = os.getenv("FRONTEND_DEFAULT_URL", "https://fb247265dab7.ngrok-free.app")
+BASE_URL = os.getenv("FRONTEND_DEFAULT_URL")
 FRONTEND_DEFAULT_URL = f"{BASE_URL}/profile"
 FRONTEND_DEFAULT_HOST = urlparse(FRONTEND_DEFAULT_URL).hostname if FRONTEND_DEFAULT_URL.startswith(('http://', 'https://')) else None
 r = redis.from_url(REDIS_URL, decode_responses=True)
@@ -191,12 +192,17 @@ def healthz():
 
 @api.get("/All_Route", tags=["Client"], summary="所有路線")
 def All_Route():
-    rows = MySQL_Run("SELECT * FROM bus_routes_total")
-    columns = [c['Field'] for c in MySQL_Run("SHOW COLUMNS FROM bus_routes_total")]
+    rows = MySQL_Doing.run("SELECT * FROM bus_routes_total")
+
+    df_cols = MySQL_Doing.run("SHOW COLUMNS FROM bus_routes_total")
+    columns = df_cols["Field"].tolist()
+
     df = pd.DataFrame(rows, columns=columns)
+
     if "created_at" in df.columns:
         df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce") \
             .apply(lambda x: x.to_pydatetime() if pd.notnull(x) else None)
+
     records = df.where(pd.notnull(df), None).to_dict(orient="records")
     return records
 
@@ -209,14 +215,15 @@ def get_route_stations(q: Define.RouteStationsQuery):
         params.append(q.direction)
 
     try:
-        rows = MySQL_Run(sql, params)
+        rows = MySQL_Doing.run(sql, params)
     except TypeError:
         if q.direction:
-            rows = MySQL_Run(f"SELECT * FROM bus_route_stations WHERE route_id = {int(q.route_id)} AND direction = '{q.direction}'")
+            rows = MySQL_Doing.run(f"SELECT * FROM bus_route_stations WHERE route_id = {int(q.route_id)} AND direction = '{q.direction}'")
         else:
-            rows = MySQL_Run(f"SELECT * FROM bus_route_stations WHERE route_id = {int(q.route_id)}")
+            rows = MySQL_Doing.run(f"SELECT * FROM bus_route_stations WHERE route_id = {int(q.route_id)}")
 
-    columns = [c['Field'] for c in MySQL_Run("SHOW COLUMNS FROM bus_route_stations")]
+    df_cols = MySQL_Doing.run("SHOW COLUMNS FROM bus_route_stations")
+    columns = df_cols["Field"].tolist()
     df = pd.DataFrame(rows, columns=columns)
 
     if df.empty:
@@ -254,7 +261,7 @@ def get_route_stations(q: Define.RouteStationsQuery):
 
 @api.get("/yo_hualien", tags=["Client"], summary="行動遊花蓮")
 def yo_hualien():
-    rows = MySQL_Run("SELECT station_name, address, latitude, longitude FROM action_tour_hualien")
+    rows = MySQL_Doing.run("SELECT station_name, address, latitude, longitude FROM action_tour_hualien")
     columns = ["station_name", "address", "latitude", "longitude"]
     df = pd.DataFrame(rows, columns=columns)
     return df.to_dict(orient="records") 
@@ -293,7 +300,7 @@ def push_reservation(req: Define.ReservationReq):
         '{req.booking_end_station_name}'
     )
     """
-    MySQL_Run(sql)
+    MySQL_Doing.run(sql)
     return {"status": "success", "sql": sql}
 
 @api.get("/reservations/my", tags=["Client"], summary="預約查詢")
@@ -304,9 +311,24 @@ def show_reservations(user_id: str):
            review_status, payment_status
     FROM reservation where user_id = '{user_id}'
     """
-    results = MySQL_Run(sql)
+    results = MySQL_Doing.run(sql)
 
-    return {"status": "success", "sql": results}
+    # 如果是 DataFrame，轉成 dict
+    if hasattr(results, "to_dict"):
+        records = results.where(pd.notnull(results), None).to_dict(orient="records")
+    else:
+        # 已經是 list/dict 的情況
+        records = results
+
+    # 確保 numpy.int64 → int
+    for r in records:
+        for k, v in r.items():
+            if isinstance(v, (pd._libs.missing.NAType, type(None))):
+                r[k] = None
+            elif hasattr(v, "item"):  # numpy scalar
+                r[k] = v.item()
+
+    return {"status": "success", "data": records}
 
 @api.get("/reservations/tomorrow", tags=["Client"], summary="預約查詢")
 def tomorrow_reservations(user_id: str):
@@ -321,7 +343,7 @@ def tomorrow_reservations(user_id: str):
     """
     print("查詢明日預約 user_id=", user_id)
     print("SQL=", sql)
-    results = MySQL_Run(sql)
+    results = MySQL_Doing.run(sql)
 
     return {"status": "success", "sql": results}
 
@@ -333,7 +355,7 @@ def Cancled_reservation(req: Define.CancelReq):
         cancel_reason = '{req.cancel_reason}'
     WHERE reservation_id = {req.reservation_id};
     """
-    Results = MySQL_Run(sql)
+    Results = MySQL_Doing.run(sql)
     return {"status": "success", "sql": Results}
 
 # === 使用者更新資訊 ===
@@ -345,7 +367,7 @@ def update_mail(user_id: int, email: str):
         updated_at = NOW()
     WHERE user_id = {user_id};
     """
-    results = MySQL_Run(sql)
+    results = MySQL_Doing.run(sql)
     return {"status": "success", "sql": sql, "results": results}
 
 @api.post("/users/update_phone", tags=["Users"], summary="更新使用者Email")
@@ -356,7 +378,7 @@ def update_phone(user_id: int, phone: str):
         updated_at = NOW()
     WHERE user_id = {user_id};
     """
-    results = MySQL_Run(sql)
+    results = MySQL_Doing.run(sql)
     return {"status": "success", "sql": sql, "results": results}
 
 # === LINE 登入與使用者權限相關API資訊 ===
@@ -373,7 +395,7 @@ def login(request: Request):
 
     # 防呆：如果 Redis 有但 MySQL 查不到 → 視為無效 session
     if not force and uid and r.exists(f"user:{uid}"):
-        db_check = MySQL_Run(f"SELECT 1 FROM users WHERE line_id='{uid}' LIMIT 1;")
+        db_check = MySQL_Doing.run(f"SELECT 1 FROM users WHERE line_id='{uid}' LIMIT 1;")
         if db_check:
             return RedirectResponse(resolved_return_to)
         else:
@@ -430,7 +452,7 @@ async def callback(request: Request, code: str | None = None, state: str | None 
     print(f"[DEBUG] LINE Profile: {profile}")
     print(f"[DEBUG] LineID={LineID}, UserName={UserName}, AppToken={app_token}")
     try:
-        MySQL_Run(f"""
+        MySQL_Doing.run(f"""
         INSERT INTO users (line_id, username, password, session_token, last_login)
         VALUES ('{LineID}', '{UserName}', '', '{app_token}', NOW())
         ON DUPLICATE KEY UPDATE session_token='{app_token}', last_login=NOW();
@@ -457,14 +479,14 @@ async def me(request: Request):
     if not app_token:
         return _unauthorized_response(request, "not logged in")
 
-    result = MySQL_Run(f"""
+    result = MySQL_Doing.run(f"""
         SELECT user_id, line_id, username, email, phone, last_login
         FROM users
         WHERE session_token = '{app_token}'
         LIMIT 1;
     """)
 
-    if not result:
+    if result.empty:
         # 防呆：自動清理 Redis 裡壞掉的 session
         uid = SessionManager.verify_session_token(app_token)
         if uid:
@@ -473,7 +495,7 @@ async def me(request: Request):
             print(f"[CLEANUP] 清掉無效 session: user={uid}")
         return _unauthorized_response(request, "session not found")
 
-    row = result[0]
+    row = result.iloc[0].to_dict()
     return {
         "user_id": row["user_id"],
         "line_id": row["line_id"],
@@ -482,6 +504,7 @@ async def me(request: Request):
         "phone": row["phone"],
         "last_login": row["last_login"],
     }
+
 
 app.include_router(api)
 app.mount('/', StaticFiles(directory='dist', html=True), name='client')

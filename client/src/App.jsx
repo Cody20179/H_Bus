@@ -8,6 +8,7 @@ import ProfilePage from './pages/Profile'
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import NearbyStations from './components/NearbyStations'
 import HomeView from './pages/HomeView'
+import { AnimatePresence, motion } from 'framer-motion'
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -66,26 +67,63 @@ export default function App() {
     <div className="page-root">
       <Header />
       <div className="view">
-        <Routes>
-          <Route
-            path="/"
-            element={<HomeView onAction={handleAction} user={user} />}
-          />
-          {/* 原本的 routes 清單 */}
-          <Route path="/routes" element={<RoutesPage />} />
-          {/* 新增：指定路線 + 站點的網址 */}
-          <Route path="/routes/:routeId/stop/:stopOrder" element={<RoutesPage />} />
-          <Route
-            path="/reserve"
-            element={<ReservePage user={user} onRequireLogin={() => navigate('/profile?from=reserve')} />}
-          />
-          <Route
-            path="/profile"
-            element={<ProfilePage user={user} onLogin={handleLogin} onLogout={handleLogout} />}
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-          <Route path="/routes/:routeId/stop/:stopOrder" element={<RoutesPage />} />
-        </Routes>
+        <AnimatePresence mode="wait">
+          <Routes location={location} key={location.pathname}>
+            <Route
+              path="/"
+              element={
+                <motion.div
+                  initial={{ opacity: 0, x: 50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -50 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <HomeView onAction={handleAction} user={user} />
+                </motion.div>
+              }
+            />
+            <Route
+              path="/routes"
+              element={
+                <motion.div
+                  initial={{ opacity: 0, x: 50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -50 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <RoutesPage />
+                </motion.div>
+              }
+            />
+            <Route
+              path="/reserve"
+              element={
+                <motion.div
+                  initial={{ opacity: 0, x: 50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -50 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <ReservePage user={user} onRequireLogin={() => navigate('/profile?from=reserve')} />
+                </motion.div>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <motion.div
+                  initial={{ opacity: 0, x: 50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -50 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <ProfilePage user={user} onLogin={handleLogin} onLogout={handleLogout} />
+                </motion.div>
+              }
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AnimatePresence>
       </div>
       <BottomNav onNavClick={handleNav} active={activeLabel} />
       {showNearby && <NearbyStations onClose={() => setShowNearby(false)} />}

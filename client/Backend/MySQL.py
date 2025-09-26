@@ -6,11 +6,11 @@ import os
 load_dotenv()
 
 Infor = {
- 'host': '192.168.0.126',
- 'user': 'root',
- 'port': 3307,
- 'password': '109109',
- 'database': 'bus_system',
+ 'host': os.getenv("Host", "127.0.0.1"),
+ 'user': os.getenv("User", "root"),
+ 'port': int(os.getenv("Port", 3306)),
+ 'password': os.getenv("Password_SQL", ""),
+ 'database': os.getenv("Database", ""),
  }
 
 def init(Parameter):

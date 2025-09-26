@@ -7,29 +7,29 @@ export default defineConfig(({ mode }) => {
             plugins: [react()],
             base: '/',
             build: {
-                outDir: '../Backend/dist',
+                outDir: 'dist',
                 emptyOutDir: true,
                 assetsDir: 'assets',
             },
             server: {
                 allowedHosts: true,
                 host: true,
-                port: 5173,
+                port: 8400,
                 proxy: {
                 '/api': {
-                    target: env.VITE_API_BASE_URL || 'http://192.168.0.126:8500',
+                    target: env.VITE_API_BASE_URL,
                     changeOrigin: true,
                 },
                 '/me': {
-                    target: env.VITE_API_BASE_URL || 'http://192.168.0.126:8500',
+                    target: env.VITE_API_BASE_URL,
                     changeOrigin: true,
                 },
                 '/logout': {
-                    target: env.VITE_API_BASE_URL || 'http://192.168.0.126:8500',
+                    target: env.VITE_API_BASE_URL,
                     changeOrigin: true,
                 },
                 '/auth': {
-                    target: env.VITE_AUTH_BASE_URL || 'https://fb247265dab7.ngrok-free.app',
+                    target: env.VITE_AUTH_BASE_URL,
                     changeOrigin: true,
                     secure: false,
                 },

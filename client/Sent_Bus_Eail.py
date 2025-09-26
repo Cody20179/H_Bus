@@ -21,13 +21,14 @@ from email.mime.multipart import MIMEMultipart
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
-from MySQL import MySQL_Run 
+from Backend.MySQL import MySQL_Doing 
 # === 載入環境變數 ===
 load_dotenv()
 
 SENDER_EMAIL = os.getenv("Sender_email", "tailin1125@gmail.com")
 SENDER_PASS  = os.getenv("Password_email", "ceaa fcfl wubf mjss")
 TZ = ZoneInfo("Asia/Taipei")
+MySQL_Doing = MySQL_Doing()
 
 # ========== 信件樣板 ==========
 MAIL_SUBJECT = "【乘車提醒】您今日的預約資訊"
@@ -83,7 +84,7 @@ def fetch_today_reservations() -> pd.DataFrame:
       AND u.email IS NOT NULL
       AND u.email <> '';
     """
-    rows = MySQL_Run(sql)
+    rows = MySQL_Doing.run(sql)
     df = pd.DataFrame(rows)
     # 安全處理：若表空或欄位大小寫/命名不同，可在此做 rename
     return df
@@ -143,12 +144,15 @@ def build_and_send_emails():
     print(f"[{datetime.now(TZ):%Y-%m-%d %H:%M:%S}] 寄送完成：成功 {success} 位、失敗 {fail} 位。")
 
 # ========== 主程式：每天 08:00 自動執行 ==========
-def main(hour=16, minute=50):
+def main(hour=8, minute=0):
     scheduler = BlockingScheduler(timezone=TZ)
-    # 每天 08:00 觸發
-    scheduler.add_job(build_and_send_emails, CronTrigger(hour, minute), id="daily_0800_send")
+    scheduler.add_job(
+        build_and_send_emails,
+        CronTrigger(hour=hour, minute=minute),
+        id="daily_0800_send"
+    )
 
-    print("排程已啟動（Asia/Taipei）。每天 08:00 寄送今日乘車提醒。")
+    print(f"排程已啟動（Asia/Taipei）。每天 {hour:02d}:{minute:02d} 寄送今日乘車提醒。")
     print("按 Ctrl+C 可停止。")
 
     try:
@@ -157,4 +161,4 @@ def main(hour=16, minute=50):
         print("排程停止。")
 
 if __name__ == "__main__":
-    main(hour=16, minute=50)
+    main(hour=8, minute=00)

@@ -13,11 +13,13 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
   const [tick, setTick] = useState(0)
   const [cars, setCars] = useState([])
 
+  // 定時刷新 tick
   useEffect(() => {
     const id = setInterval(() => setTick((t) => (t + 1) % 1_000_000), 15000)
     return () => clearInterval(id)
   }, [])
 
+  // 抓取站點
   useEffect(() => {
     if (!isStatic) {
       let cancelled = false
@@ -43,6 +45,7 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     }
   }, [route, selectedDir, isStatic])
 
+  // 抓取車輛位置
   useEffect(() => {
     let cancelled = false
     async function loadCars() {
@@ -50,8 +53,8 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
         const data = await getCarPositions()
         console.log("[GIS_About] API 回傳資料:", data)
         if (!cancelled) {
-          setCars([...data])      // 強制建立新陣列 → 觸發 re-render
-          setTick((t) => t + 1)   // 額外觸發 refresh
+          setCars([...data])
+          setTick((t) => t + 1)
         }
       } catch (e) {
         console.warn("載入即時車輛位置失敗", e)
@@ -61,12 +64,11 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     const id = setInterval(() => {
       console.log("[GIS_About] 重新抓取車輛位置...")
       loadCars()
-    }, 5000) // 每 15 秒更新
+    }, 5000)
     return () => { cancelled = true; clearInterval(id) }
   }, [])
 
-
-
+  // 靜態站點
   const list = useMemo(() => {
     if (!isStatic) return []
     return stations
@@ -82,32 +84,51 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
       })
   }, [route, isStatic])
 
-      const displayStops = useMemo(() => {
-      const unified = (isStatic ? list : stops).map((s, idx) => ({
-        name: s.stopName || s['站點'] || `第${idx+1}站`,
-        order: Number(s.order ?? s['站次'] ?? (idx+1)),
-        latitude: Number(s.latitude ?? s['去程緯度'] ?? s['緯度']),
-        longitude: Number(s.longitude ?? s['去程經度'] ?? s['經度']),
-        etaFromStart: s.etaFromStart ?? s['首站到此站時間'] ?? null,
-        etaToHere: s.etaToHere ?? null,
+  // 顯示的站點 + 車輛狀態
+  const displayStops = useMemo(() => {
+    const unified = (isStatic ? list : stops).map((s, idx) => ({
+      name: s.stopName || s['站點'] || `第${idx+1}站`,
+      order: Number(s.order ?? s['站次'] ?? (idx+1)),
+      latitude: Number(s.latitude ?? s['去程緯度'] ?? s['緯度']),
+      longitude: Number(s.longitude ?? s['去程經度'] ?? s['經度']),
+      etaFromStart: s.etaFromStart ?? s['首站到此站時間'] ?? null,
+      etaToHere: s.etaToHere ?? null,
+    }))
+
+    const car = cars.find(c =>
+      String(c.route) === String(route.id) ||
+      String(c.route) === String(route.route_id) ||
+      String(c.route) === String(route.name)
+    )
+
+    if (!car) {
+      return unified.map(s => ({
+        ...s,
+        status: { label: "未發車", tone: "orange" }
       }))
+    }
 
-      const car = cars.find(c => String(c.route) === String(route.id))
-      if (!car) {
-        return unified.map(s => ({
-          ...s,
-          status: { label: "尚無服務", tone: "muted" }
-        }))
+    // 如果方向不符 → 全部顯示未發車
+    if (car.direction !== selectedDir) {
+      return unified.map(s => ({
+        ...s,
+        status: { label: "未發車", tone: "orange" }
+      }))
+    }
+
+    // 找到目前所在站
+    let currentIndex = unified.findIndex(s => s.name === car.currentLocation)
+
+    return unified.map((s, idx) => {
+      if (idx < currentIndex) {
+        return { ...s, status: { label: "已過站", tone: "muted" } }
+      } else if (idx === currentIndex) {
+        return { ...s, status: { label: "到站中", tone: "green" } }
+      } else {
+        return { ...s, status: { label: `${s.etaFromStart ?? '-'} 分鐘`, tone: "blue" } }
       }
-      
-      return unified.map(s => {
-        if (s.name === car.currentLocation) {
-          return { ...s, status: { label: "到站中", tone: "green" } }
-        }
-        return { ...s, status: { label: car.direction, tone: "blue" } }
-      })
-
-    }, [isStatic, list, stops, cars, route.id])
+    })
+  }, [isStatic, list, stops, cars, route.id, selectedDir])
 
   const staticStopsForMap = useMemo(() => {
     if (!isStatic) return []
@@ -151,62 +172,56 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
             )}
 
             {viewMode === 'map' ? (
-              <RouteMap stops={stops} />
+              <RouteMap stops={stops} cars={cars} route={route} />
             ) : (
               <div className="stops-list">
                 {loading && <div className="muted">載入中…</div>}
                 {error && <div className="muted" style={{ color: '#c25' }}>{error}</div>}
-                              
                 {displayStops.map((s, idx) => {
-                const isHighlight = highlightStop && (s.order === highlightStop)
-                return (
-                  <div
-                    key={idx}
-                    className="stop-item"
-                    style={isHighlight ? { border: '2px solid red', borderRadius: '8px' } : {}}
-                  >
-                    <div className="stop-left">
-                      <div className="stop-name">{s.name}</div>
-                      <div className="muted small">
-                        第 {s.order ?? (idx + 1)} 站 • 首站起 {s.etaFromStart ?? '-'} 分鐘
+                  const isHighlight = highlightStop && (s.order === highlightStop)
+                  return (
+                    <div
+                      key={idx}
+                      className="stop-item"
+                      style={isHighlight ? { border: '2px solid red', borderRadius: '8px' } : {}}
+                    >
+                      <div className="stop-left">
+                        <div className="stop-name">{s.name}</div>
+                        <div className="muted small">
+                          第 {s.order ?? (idx + 1)} 站 • 首站起 {s.etaFromStart ?? '-'} 分鐘
+                        </div>
+                      </div>
+                      <div className="stop-right">
+                        <span
+                          className="muted small"
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: 12,
+                            background:
+                              s.status.tone === 'green'
+                                ? '#e7f7ec'
+                                : s.status.tone === 'orange'
+                                ? '#fff2e5'
+                                : s.status.tone === 'blue'
+                                ? '#eaf2ff'
+                                : '#f2f3f5',
+                            color:
+                              s.status.tone === 'green'
+                                ? '#16794c'
+                                : s.status.tone === 'orange'
+                                ? '#a24a00'
+                                : s.status.tone === 'blue'
+                                ? '#1d4ed8'
+                                : '#6b7280',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {s.status.label}
+                        </span>
                       </div>
                     </div>
-                    <div className="stop-right">
-<span
-  className="muted small"
-  style={{
-    padding: '2px 8px',
-    borderRadius: 12,
-    background:
-      s.status.tone === 'green'
-        ? '#e7f7ec'
-        : s.status.tone === 'orange'
-        ? '#fff2e5'
-        : s.status.tone === 'blue'
-        ? '#eaf2ff'
-        : '#f2f3f5',
-    color:
-      s.status.tone === 'green'
-        ? '#16794c'
-        : s.status.tone === 'orange'
-        ? '#a24a00'
-        : s.status.tone === 'blue'
-        ? '#1d4ed8'
-        : '#6b7280',
-    whiteSpace: 'nowrap',
-  }}
->
-  {s.status.label}
-  {s.status.label === '尚需' && s.status.remain !== undefined
-    ? ` ${s.status.remain} 分鐘`
-    : ''}
-</span>
-
-                    </div>
-                  </div>
-                )
+                  )
                 })}
-
                 {!loading && displayStops.length === 0 && !error && (
                   <div className="muted">此方向目前無站點資料</div>
                 )}
@@ -215,59 +230,47 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
           </>
         ) : (
           viewMode === 'map' ? (
-            <RouteMap stops={staticStopsForMap} />
+            <RouteMap stops={staticStopsForMap} cars={cars} route={route} />
           ) : (
             <div className="stops-list">
- {displayStops.map((s, idx) => {
-  const isHighlight = highlightStop && (s.order === highlightStop)
-  return (
-    <div
-      key={idx}
-      className="stop-item"
-      style={isHighlight ? { border: '2px solid red', borderRadius: '8px' } : {}}
-    >
-      <div className="stop-left">
-        <div className="stop-name">{s.name}</div>
-        <div className="muted small">
-          第 {s.order ?? (idx + 1)} 站 • 首站起 {s.etaFromStart ?? '-'} 分鐘
-        </div>
-      </div>
-      <div className="stop-right">
-<span
-  className="muted small"
-  style={{
-    padding: '2px 8px',
-    borderRadius: 12,
-    background:
-      s.status.tone === 'green'
-        ? '#e7f7ec'
-        : s.status.tone === 'orange'
-        ? '#fff2e5'
-        : s.status.tone === 'blue'
-        ? '#eaf2ff'
-        : '#f2f3f5',
-    color:
-      s.status.tone === 'green'
-        ? '#16794c'
-        : s.status.tone === 'orange'
-        ? '#a24a00'
-        : s.status.tone === 'blue'
-        ? '#1d4ed8'
-        : '#6b7280',
-    whiteSpace: 'nowrap',
-  }}
->
-  {s.status.label}
-  {s.status.label === '尚需' && s.status.remain !== undefined
-    ? ` ${s.status.remain} 分鐘`
-    : ''}
-</span>
-
-      </div>
-    </div>
-  )
-})}
-
+              {displayStops.map((s, idx) => (
+                <div key={idx} className="stop-item">
+                  <div className="stop-left">
+                    <div className="stop-name">{s.name}</div>
+                    <div className="muted small">
+                      第 {s.order ?? (idx + 1)} 站 • 首站起 {s.etaFromStart ?? '-'} 分鐘
+                    </div>
+                  </div>
+                  <div className="stop-right">
+                    <span
+                      className="muted small"
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 12,
+                        background:
+                          s.status.tone === 'green'
+                            ? '#e7f7ec'
+                            : s.status.tone === 'orange'
+                            ? '#fff2e5'
+                            : s.status.tone === 'blue'
+                            ? '#eaf2ff'
+                            : '#f2f3f5',
+                        color:
+                          s.status.tone === 'green'
+                            ? '#16794c'
+                            : s.status.tone === 'orange'
+                            ? '#a24a00'
+                            : s.status.tone === 'blue'
+                            ? '#1d4ed8'
+                            : '#6b7280',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {s.status.label}
+                    </span>
+                  </div>
+                </div>
+              ))}
               {displayStops.length === 0 && <div className="muted">找不到此路線的站點資料</div>}
             </div>
           )
@@ -275,19 +278,6 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
       </div>
     </div>
   )
-}
-
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000 // meters
-  const toRad = (d) => (d * Math.PI) / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLon = toRad(lon2 - lon1)
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) ** 2
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return R * c
 }
 
 function useLeaflet() {
@@ -307,7 +297,7 @@ function useLeaflet() {
   return ready
 }
 
-function RouteMap({ stops }) {
+function RouteMap({ stops, cars, route }) {
   const ready = useLeaflet()
   const elRef = useRef(null)
   const mapRef = useRef(null)
@@ -346,87 +336,46 @@ function RouteMap({ stops }) {
       .slice()
       .sort((a,b) => (a.order ?? a.stop_order ?? 0) - (b.order ?? b.stop_order ?? 0))
 
-    // overlap handling: bigger offset to fully separate
-    const seen = new Map()
-    const offsetLatLng = ([lat,lng], meters=14, angleDeg=0) => {
-      const R=6378137
-      const dLat = (meters*Math.cos(angleDeg*Math.PI/180))/R
-      const dLng = (meters*Math.sin(angleDeg*Math.PI/180))/(R*Math.cos(lat*Math.PI/180))
-      return [lat + dLat*180/Math.PI, lng + dLng*180/Math.PI]
-    }
     const llOriginal = ordered.map((s) => {
       const lat = Number(s.latitude ?? s.lat), lng = Number(s.longitude ?? s.lng)
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
       return [lat, lng]
     }).filter(Boolean)
 
-    const ll = ordered.map((s) => {
-      const lat = Number(s.latitude ?? s.lat), lng = Number(s.longitude ?? s.lng)
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-      const key = lat.toFixed(6)+','+lng.toFixed(6)
-      const n = (seen.get(key) || 0); seen.set(key, n+1)
-      return n===0 ? [lat,lng] : offsetLatLng([lat,lng], (n)*14, n*45)
-    }).filter(Boolean)
-
-    // Draw road-snapped route using OSRM (fallback to straight line)
-    const draw = async () => {
-      if (llOriginal.length >= 2) {
-        const coords = llOriginal.map(([lat,lng]) => `${lng},${lat}`).join(';')
-        const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`
-        try {
-          await ensurePolylineDecorator()
-          const r = await fetch(url)
-          if (!r.ok) throw new Error(String(r.status))
-          const j = await r.json()
-          const g = j?.routes?.[0]?.geometry
-          if (g) {
-            const casing = L.geoJSON(g, { style:{ color:'#ffffff', weight:12, opacity:1, lineCap:'round', lineJoin:'round' } }).addTo(routeLayer)
-            const stroke = L.geoJSON(g, { style:{ color:'#2563eb', weight:7, opacity:.98, lineCap:'round', lineJoin:'round' } }).addTo(routeLayer)
-            try {
-              if (L.polylineDecorator) {
-                const poly = stroke.getLayers()[0]
-                if (poly) {
-                  L.polylineDecorator(poly, { patterns:[{ offset:0, repeat:'48px', symbol: L.Symbol.arrowHead({ pixelSize:11, pathOptions:{ color:'#2563eb', weight:6, opacity:0.95 } }) }] }).addTo(routeLayer)
-                }
-              }
-            } catch {}
-            mapRef.current.fitBounds(stroke.getBounds(), { padding:[30,30] })
-          } else {
-            const line = L.polyline(llOriginal, { color:'#2563eb', weight:6, opacity:.95 }).addTo(routeLayer)
-            mapRef.current.fitBounds(line.getBounds(), { padding:[30,30] })
-          }
-        } catch (e) {
-          const line = L.polyline(llOriginal, { color:'#2563eb', weight:6, opacity:.95 }).addTo(routeLayer)
-          mapRef.current.fitBounds(line.getBounds(), { padding:[30,30] })
-        }
-      } else if (ll.length === 1) {
-        mapRef.current.setView(ll[0], 15)
-      }
+    if (llOriginal.length >= 2) {
+      const line = L.polyline(llOriginal, { color:'#2563eb', weight:6, opacity:.95 }).addTo(routeLayer)
+      mapRef.current.fitBounds(line.getBounds(), { padding:[30,30] })
+    } else if (llOriginal.length === 1) {
+      mapRef.current.setView(llOriginal[0], 15)
     }
-    draw()
 
     const icon = (label, cls='') => L.divIcon({ className:'', html:`<div class="stop-badge ${cls}">${label}</div>`, iconSize:[24,24], iconAnchor:[12,12] })
     ordered.forEach((s, idx) => {
-      const p = ll[idx]; if (!p) return
+      const p = llOriginal[idx]; if (!p) return
       const isFirst = idx===0, isLast = idx===ordered.length-1
       const label = isFirst ? 'S' : (s.order ?? s.stop_order ?? idx+1)
       const cls = isFirst ? 'stop-start' : (isLast ? 'stop-end' : '')
       L.marker(p, { icon: icon(label, cls) }).addTo(stopLayer).bindTooltip(`${s.stopName || s.stop_name || '站點'}`, { direction:'top' })
     })
 
-    cars.filter(c => String(c.route) === String(route.id)).forEach(car => {
-    const busPt = [car.Y, car.X]
-    const html = `
-      <div class="bus-wrap">
-        <div class="bus-pulse"></div>
-        <div class="bus-dot"></div>
-        <div class="bus-emoji">🚌</div>
-        <div class="bus-badge">${car.direction}</div>
-      </div>`
-    L.marker(busPt, { icon: L.divIcon({ className:'', html, iconSize:[1,1] }) }).addTo(busLayer)
-    L.circle(busPt, { radius:50, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.08 }).addTo(busLayer)
-  })
-  }, [ready, stops])
+    // 🔑 改這裡：比對方式和 RouteDetail 一樣
+    cars.filter(c =>
+      String(c.route) === String(route.id) ||
+      String(c.route) === String(route.route_id) ||
+      String(c.route) === String(route.name)
+    ).forEach(car => {
+      const busPt = [car.Y, car.X]
+      const html = `
+        <div class="bus-wrap">
+          <div class="bus-pulse"></div>
+          <div class="bus-dot"></div>
+          <div class="bus-emoji">🚌</div>
+          <div class="bus-badge">${car.direction}</div>
+        </div>`
+      L.marker(busPt, { icon: L.divIcon({ className:'', html, iconSize:[1,1] }) }).addTo(busLayer)
+      L.circle(busPt, { radius:50, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.08 }).addTo(busLayer)
+    })
+  }, [ready, stops, cars, route])
 
   return (
     <div style={{ height:'60vh', borderRadius: 12, overflow:'hidden' }} ref={elRef} />

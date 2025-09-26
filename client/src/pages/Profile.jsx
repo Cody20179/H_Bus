@@ -165,37 +165,21 @@ function ProfilePage({ user, onLogin, onLogout }) {
     window.location.href = `/logout`;
   };
 
-  // 推播測試
-  // const handleTestPush = async () => {
-  //   try {
-  //     if (!('Notification' in window)) {
-  //       alert('此瀏覽器不支援通知功能')
-  //       return
-  //     }
-  //     const perm = await Notification.requestPermission()
-  //     if (perm !== 'granted') {
-  //       alert('通知權限未開啟')
-  //       return
-  //     }
-  //     const title = '測試通知'
-  //     const body = `這是一則測試通知：${new Date().toLocaleTimeString()}`
-  //     if ('serviceWorker' in navigator && window.isSecureContext) {
-  //       const reg = await navigator.serviceWorker.register('/sw.js')
-  //       await reg.update().catch(()=>{})
-  //       await reg.showNotification(title, { body, icon: '/icon.png', tag: 'hbus-test', renotify: true })
-  //       return
-  //     }
-  //     try {
-  //       new Notification(title, { body, icon: '/icon.png', tag: 'hbus-fallback' })
-  //     } catch (e) {
-  //       alert('此環境需要 Service Worker，請在 HTTPS 或 localhost 測試通知')
-  //     }
-  //   } catch (e) {
-  //     alert('推播發送失敗，請查看主控台')
-  //   }
-  // }
-
   const getEffectiveUser = () => (sessionUser && sessionUser.user_id) ? sessionUser : user
+  
+  const statusText = (s) => {
+    const str = String(s || '').toLowerCase()
+    if (str.includes('approved') || str.includes('paid') || str.includes('assigned') || str.includes('complete')) {
+      return '通過'
+    }
+    if (str.includes('pending') || str.includes('not_assigned')) {
+      return '待辦'
+    }
+    if (str.includes('reject') || str.includes('cancel') || str.includes('fail')) {
+      return '失敗'
+    }
+    return str || '-'
+  }
 
   // 共用時間格式化函式
   const fmt = (s) => {
@@ -307,7 +291,6 @@ function ProfilePage({ user, onLogin, onLogout }) {
               window.location.href = `/auth/line/login?return_to=${encodeURIComponent(ret)}`
             }}
           >
-            <img src="https://scdn.line-apps.com/n/line_reg_v2_oauth/img/naver/btn_login_base.png" alt="LINE Login" className="line-icon" />
             使用 LINE 登入
           </button>
         </div>
@@ -396,6 +379,7 @@ function ProfilePage({ user, onLogin, onLogout }) {
             {!resvLoading && !resvErr && myResv.length === 0 && (
               <div className="muted small">尚無預約，前往預約吧。</div>
             )}
+
             {validReservations.map((r, index) => {
               const fmt = (s) => {
                 try {
@@ -425,6 +409,8 @@ function ProfilePage({ user, onLogin, onLogout }) {
                 String(r.dispatch_status || '').toLowerCase().includes(keyword)
               )
 
+
+
               return (
                 <div className="resv-card" key={index}>
                   <div className="resv-main">
@@ -432,8 +418,8 @@ function ProfilePage({ user, onLogin, onLogout }) {
                     <div className="resv-sub">{fmt(r.booking_time)} ・ {r.booking_number} 人</div>
                     <div className="small muted">預約編號：{r.reservation_id}</div>
                     <div className="resv-status">
-                      <span className={`status-chip ${cls(r.review_status)}`}>審核 {r.review_status || '-'}</span>
-                      <span className={`status-chip ${cls(r.payment_status)}`}>支付 {r.payment_status || '-'}</span>
+                      <span className={`status-chip ${cls(r.review_status)}`}>審核 {statusText(r.review_status)}</span>
+                      <span className={`status-chip ${cls(r.payment_status)}`}>支付 {statusText(r.payment_status)}</span>
                     </div>
                   </div>
                   <div className="resv-actions">
@@ -466,7 +452,9 @@ function ProfilePage({ user, onLogin, onLogout }) {
         <section className="card">
           <div className="card-title"><span>最近行程</span></div>
           <div className="list">
-            {(showMoreTrips ? failedReservations : failedReservations.slice(0, 3)).map((r, idx) => {
+            {(showMoreTrips ? failedReservations : failedReservations.slice(0, 3))
+            .filter(r => !String(r.review_status||'').toLowerCase().includes('canceled'))
+            .map((r, idx) => {
               const fmt = (s) => {
                 try {
                   if (!s) return '-'
@@ -481,17 +469,28 @@ function ProfilePage({ user, onLogin, onLogout }) {
                 } catch { return String(s) }
               }
               return (
-                <div className="item" key={idx}>
-                  <div>
-                    <div style={{ fontWeight:700 }}>
-                      {r.booking_start_station_name} → {r.booking_end_station_name}
-                    </div>
-                      <div className="item-desc">
-                        {fmt(r.booking_time)} ・ {r.booking_number} 人 ・ 狀態: {r.review_status}/{r.payment_status} ・ 編號: {r.reservation_id}
-                      </div>
+                <div
+                  className="trip-card"
+                  key={idx}
+                  style={{
+                    background: '#fff',
+                    borderRadius: 10,
+                    padding: '12px 14px',
+                    marginBottom: 10,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                    {r.booking_start_station_name} → {r.booking_end_station_name}
                   </div>
-                  <button className="btn-pay-manage" onClick={()=>alert('查看詳情', r.reservation_id)}>查看</button>
+                  <div style={{ fontSize: 14, color: '#374151' }}>
+                    {fmt(r.booking_time)} ・ {r.booking_number} 人
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                    狀態：審核 {statusText(r.review_status)} ・ 支付 {statusText(r.payment_status)} ・ 編號：{r.reservation_id}
+                  </div>
                 </div>
+
               )
             })}
           </div>
