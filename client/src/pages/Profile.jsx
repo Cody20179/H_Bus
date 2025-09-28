@@ -37,12 +37,12 @@ function ProfilePage({ user, onLogin, onLogout }) {
       try { document.execCommand('copy'); } catch(e){}
       document.body.removeChild(ta);
       // 可顯示短暫提示
-      showToast && showToast('已複製');
+      showToast && setToastMsg('已複製');
       return;
     }
     navigator.clipboard.writeText(text)
-      .then(()=> showToast && showToast('已複製'))
-      .catch(()=> showToast && showToast('複製失敗'));
+      .then(()=> showToast && setToastMsg('已複製'))
+      .catch(()=> showToast && setToastMsg('複製失敗'));
   }
 
   // 點按查看隱私 / 權益的處理器（可改為 route push 或打開 modal）
@@ -61,6 +61,12 @@ function ProfilePage({ user, onLogin, onLogout }) {
     String(r.payment_status||'').toLowerCase().includes('fail')
   )
   
+  useEffect(() => {
+  if (!toastMsg) return;
+  const timer = setTimeout(() => setToastMsg(''), 2000); // 2 秒後清空
+  return () => clearTimeout(timer);
+}, [toastMsg]);
+
   useEffect(() => {
     if (import.meta.env.MODE === 'production') return
     const helper = async (passcode, overrides = {}) => {
@@ -408,9 +414,6 @@ function ProfilePage({ user, onLogin, onLogout }) {
                 String(r.payment_status || '').toLowerCase().includes(keyword) ||
                 String(r.dispatch_status || '').toLowerCase().includes(keyword)
               )
-
-
-
               return (
                 <div className="resv-card" key={index}>
                   <div className="resv-main">
@@ -432,23 +435,20 @@ function ProfilePage({ user, onLogin, onLogout }) {
                     >
                       查看路線
                     </button>
-{cancellable && (
-  <button
-    className="btn"
-    onClick={() => setCancelTarget(r)} // 不用 confirm，直接打開取消 Modal
-  >
-    取消
-  </button>
-)}
-
+                  {cancellable && (
+                    <button
+                      className="btn"
+                      onClick={() => setCancelTarget(r)} // 不用 confirm，直接打開取消 Modal
+                    >
+                      取消
+                    </button>
+                  )}
                   </div>
                 </div>
               )
             })}
           </div>
         </section>
-  
-        {/* 最近行程（範例靜態） */}
         <section className="card">
           <div className="card-title"><span>最近行程</span></div>
           <div className="list">
@@ -502,46 +502,27 @@ function ProfilePage({ user, onLogin, onLogout }) {
             </div>
           )}
         </section>
-      
-        {/* 推播測試
-        <section className="card">
-          <div className="card-title"><span>推播測試</span></div>
-          <div className="card-body">
-            <button className="btn btn-blue" onClick={handleTestPush}>發送測試推播</button>
-            <div className="small muted" style={{ marginTop: 8 }}>請在 HTTPS 或 localhost 環境下測試推播功能</div>
-          </div>
-        </section> */}
-  
-        {/* 常見問題 */}
         <section className="card help-card" aria-labelledby="help-title">
           <div className="card-title" id="help-title"><span>幫助</span></div>
-
           <div className="card-body">
             <div className="help-list">
-
-              {/* 聯絡客服 */}
               <div className="help-item">
                 <div className="help-left">
                   <div className="help-title">聯絡客服</div>
                   <div className="help-sub muted">客服電話 • 營業時間：週一–週五 09:00 – 18:00</div>
                 </div>
-
                 <div className="help-right">
-                  {/* tel: link + visual pill */}
                   <a
                     className="phone-pill"
                     href={`tel:${supportPhone}`}
                     aria-label={`撥打客服電話 ${supportPhone}`}
                     onClick={(e)=>{/* optional analytics */}}
                   >
-                    {/* phone SVG icon (inline for reliability) */}
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.87 19.87 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.87 19.87 0 0 1 3.08 4.18 2 2 0 0 1 5 2h3a2 2 0 0 1 2 1.72c.12 1.05.38 2.08.78 3.02a2 2 0 0 1-.45 2.11L9.91 10.09a16 16 0 0 0 6 6l1.24-1.24a2 2 0 0 1 2.11-.45c.94.4 1.97.66 3.02.78A2 2 0 0 1 22 16.92z" fill="currentColor"/>
                     </svg>
                     <span className="phone-number" title={supportPhone}>{phoneDisplay}</span>
                   </a>
-
-                  {/* copy button */}
                   <button
                     type="button"
                     className="btn-icon btn-copy"
@@ -555,8 +536,6 @@ function ProfilePage({ user, onLogin, onLogout }) {
                   </button>
                 </div>
               </div>
-
-              {/* 隱私政策 */}
               <div className="help-item">
                 <div className="help-left">
                   <div className="help-title">隱私政策</div>
@@ -566,25 +545,17 @@ function ProfilePage({ user, onLogin, onLogout }) {
                   <button type="button" className="btn btn-primary" onClick={viewPrivacy} aria-label="查看隱私政策">查看</button>
                 </div>
               </div>
-
-              {/* 權益與保障（新） */}
               <div className="help-item help-rights">
                 <div className="help-left">
                   <div className="help-title">權益與保障</div>
                   <div className="help-sub muted">退款、申訴與個資權益重點</div>
-
                   <ul className="rights-list">
                     <li><strong>退款/退票：</strong>依本平台退票規範辦理，申請後 7 個工作日處理。</li>
                     <li><strong>客訴處理：</strong>受理後 48 小時內回覆處理進度。</li>
                     <li><strong>個資保護：</strong>可提出刪除或資料限縮請求，平台將依法定程序回覆。</li>
                   </ul>
                 </div>
-
-                <div className="help-right">
-                  <button type="button" className="btn btn-outline" onClick={viewRights} aria-label="了解更多權益">了解更多</button>
-                </div>
               </div>
-
             </div>
           </div>
         </section>
@@ -671,7 +642,6 @@ function ProfilePage({ user, onLogin, onLogout }) {
     </div>
   </div>
 )}
-
 {cancelTarget && (
   <div className="modal-overlay">
     <div className="modal-card">
@@ -682,7 +652,6 @@ function ProfilePage({ user, onLogin, onLogout }) {
         {cancelTarget.booking_start_station_name} → {cancelTarget.booking_end_station_name}<br />
         時間：{fmt(cancelTarget.booking_time)} ・ 人數：{cancelTarget.booking_number}
       </p>
-
       <textarea
         className="auth-input"
         placeholder="請輸入取消原因"
@@ -690,14 +659,12 @@ function ProfilePage({ user, onLogin, onLogout }) {
         onChange={(e) => setCancelReason(e.target.value)}
         style={{ width: '100%', minHeight: '80px', marginTop: '8px' }}
       />
-
       <div className="modal-actions">
         <button
           className="btn btn-orange"
           disabled={!cancelReason.trim()}
           onClick={async () => {
             try {
-              // 這裡把原因一併送給後端（假設 API 接受）
               await cancelReservation(cancelTarget.reservation_id, cancelReason)
               const uid = user?.id ?? user?.user_id
               const next = await getMyReservations(uid)
@@ -725,8 +692,6 @@ function ProfilePage({ user, onLogin, onLogout }) {
     </div>
   </div>
 )}
-
-
       </div>
     )
 }

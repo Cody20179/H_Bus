@@ -25,8 +25,8 @@ from Backend.MySQL import MySQL_Doing
 # === 載入環境變數 ===
 load_dotenv()
 
-SENDER_EMAIL = os.getenv("Sender_email", "tailin1125@gmail.com")
-SENDER_PASS  = os.getenv("Password_email", "ceaa fcfl wubf mjss")
+SENDER_EMAIL = os.getenv("Sender_email")
+SENDER_PASS  = os.getenv("Password_email")
 TZ = ZoneInfo("Asia/Taipei")
 MySQL_Doing = MySQL_Doing()
 
