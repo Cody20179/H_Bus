@@ -1,14 +1,16 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, Column, Integer, String, TIMESTAMP, Boolean, ForeignKey, text, func, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel,Field
-from typing import Optional, Literal, List, Tuple
+from typing import Optional, Literal, List, Tuple, Dict, Set
 import bcrypt
 import os
 from dotenv import load_dotenv
+from collections import defaultdict
+from calendar import monthrange
 from datetime import datetime, timezone, timedelta, date
 import pytz
 from MySQL import MySQL_Run
@@ -33,6 +35,131 @@ def get_taipei_time():
 def get_taiwan_datetime():
     """取得台灣時間的 datetime 物件（無時區資訊，供資料庫使用）"""
     return datetime.now(TAIPEI_TZ).replace(tzinfo=None)
+
+# ===== 預約分析共用工具 =====
+RESERVATION_STATUS_PRIORITY = [
+    "pending",
+    "approved",
+    "assigned",
+    "in_progress",
+    "completed",
+    "canceled",
+    "rejected",
+    "failed",
+]
+
+REVIEW_STATUS_PRIORITY = [
+    "pending",
+    "approved",
+    "rejected",
+    "canceled",
+]
+
+
+def _add_month(value: date) -> date:
+    if value.month == 12:
+        return date(value.year + 1, 1, 1)
+    return date(value.year, value.month + 1, 1)
+
+
+def _month_last_day(value: date) -> date:
+    return date(value.year, value.month, monthrange(value.year, value.month)[1])
+
+
+def _parse_month_string(value: str) -> date:
+    try:
+        return datetime.strptime(value, "%Y-%m").date().replace(day=1)
+    except Exception:
+        raise HTTPException(status_code=400, detail="月份格式需為 YYYY-MM")
+
+
+def _normalize_datetime(value) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        if value.tzinfo:
+            return value.astimezone(TAIPEI_TZ).replace(tzinfo=None)
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+            try:
+                return datetime.strptime(value, fmt)
+            except ValueError:
+                continue
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _generate_week_ranges(target_year: int, target_month: int) -> List[Dict[str, date]]:
+    last_day = monthrange(target_year, target_month)[1]
+    ranges: List[Dict[str, date]] = []
+    day = 1
+    week_index = 1
+    while day <= last_day:
+        start_date = date(target_year, target_month, day)
+        end_day = min(day + 6, last_day)
+        end_date = date(target_year, target_month, end_day)
+        ranges.append({
+            "week": week_index,
+            "start": start_date,
+            "end": end_date,
+            "label": f"{start_date.month}/{start_date.day}-{end_date.month}/{end_date.day}",
+        })
+        day += 7
+        week_index += 1
+    return ranges
+
+
+def _normalize_status(value, fallback: str = 'unknown') -> str:
+    if value is None:
+        return fallback
+    value_str = str(value).strip()
+    if not value_str:
+        return fallback
+    lower = value_str.lower()
+    if lower in {'', 'none', 'null'}:
+        return fallback
+    return lower
+
+
+def _sort_status_keys(keys: Set[str], priority: List[str]) -> List[str]:
+    if not keys:
+        return []
+    working = set(keys)
+    unknown_present = 'unknown' in working
+    if unknown_present:
+        working.remove('unknown')
+    ordered = [item for item in priority if item in working]
+    remainder = sorted(working - set(ordered))
+    result = ordered + remainder
+    if unknown_present:
+        result.append('unknown')
+    return result
+
+
+def _fetch_reservations_in_range(start_dt: datetime, end_dt: datetime):
+    sql = """
+        SELECT
+            COALESCE(created_at, booking_time) AS event_time,
+            reservation_status,
+            review_status
+        FROM reservation
+        WHERE (
+            (created_at IS NOT NULL AND created_at >= %s AND created_at < %s)
+            OR (created_at IS NULL AND booking_time IS NOT NULL AND booking_time >= %s AND booking_time < %s)
+        )
+    """
+    return MySQL_Run(sql, (start_dt, end_dt, start_dt, end_dt)) or []
+
+
+def _ensure_datetime_window(start: date, end: date) -> Tuple[datetime, datetime]:
+    start_dt = datetime.combine(start, datetime.min.time())
+    end_dt = datetime.combine(end + timedelta(days=1), datetime.min.time())
+    return start_dt, end_dt
+
 
 # 載入環境變數
 load_dotenv()
@@ -739,6 +866,297 @@ def get_reservation_stats(db: Session = Depends(get_db)):
                 "growth_rate": 0.0,
             },
         }
+
+@app.get("/api/dashboard/reservations/trend")
+def get_reservation_trend(
+    mode: Literal['monthly', 'range'] = Query('monthly'),
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    start_month: Optional[str] = Query(None, description="起始月份 YYYY-MM"),
+    end_month: Optional[str] = Query(None, description="結束月份 YYYY-MM"),
+):
+    try:
+        mode_value = (mode or 'monthly').lower()
+        if mode_value not in ('monthly', 'range'):
+            raise HTTPException(status_code=400, detail="mode 僅支援 monthly 或 range")
+
+        now = get_taipei_time()
+
+        if mode_value == 'monthly':
+            target_year = year or now.year
+            target_month = month or now.month
+            if target_month < 1 or target_month > 12:
+                raise HTTPException(status_code=400, detail="month 需介於 1-12")
+
+            start_date = date(target_year, target_month, 1)
+            last_day = monthrange(target_year, target_month)[1]
+            end_date = date(target_year, target_month, last_day)
+            start_dt, end_dt = _ensure_datetime_window(start_date, end_date)
+
+            rows = _fetch_reservations_in_range(start_dt, end_dt)
+            weeks = _generate_week_ranges(target_year, target_month)
+            week_totals = [0 for _ in weeks]
+            for row in rows:
+                event_dt = _normalize_datetime(row.get('event_time'))
+                if not event_dt:
+                    continue
+                event_date = event_dt.date()
+                if event_date < start_date or event_date > end_date:
+                    continue
+                diff = (event_date - start_date).days
+                index = min(diff // 7, len(weeks) - 1)
+                week_totals[index] += 1
+
+            total = sum(week_totals)
+            weeks_output = []
+            for info, count in zip(weeks, week_totals):
+                weeks_output.append({
+                    "week": info['week'],
+                    "label": info['label'],
+                    "start_date": info['start'].isoformat(),
+                    "end_date": info['end'].isoformat(),
+                    "count": count,
+                })
+
+            return {
+                "success": True,
+                "data": {
+                    "mode": "monthly",
+                    "year": target_year,
+                    "month": target_month,
+                    "weeks": weeks_output,
+                    "total": total,
+                },
+            }
+
+        # range mode
+        if not start_month or not end_month:
+            raise HTTPException(status_code=400, detail="range 模式需提供 start_month 與 end_month")
+
+        start_date = _parse_month_string(start_month)
+        end_marker = _parse_month_string(end_month)
+        if end_marker < start_date:
+            raise HTTPException(status_code=400, detail="end_month 不可早於 start_month")
+
+        end_date = _month_last_day(end_marker)
+        start_dt, end_dt = _ensure_datetime_window(start_date, end_date)
+        rows = _fetch_reservations_in_range(start_dt, end_dt)
+
+        month_totals: Dict[str, int] = defaultdict(int)
+        for row in rows:
+            event_dt = _normalize_datetime(row.get('event_time'))
+            if not event_dt:
+                continue
+            event_date = event_dt.date()
+            if event_date < start_date or event_date > end_date:
+                continue
+            key = event_date.strftime("%Y-%m")
+            month_totals[key] += 1
+
+        months_output = []
+        total = 0
+        cursor = start_date
+        while cursor <= end_date:
+            key = cursor.strftime("%Y-%m")
+            count = month_totals.get(key, 0)
+            months_output.append({
+                "month": key,
+                "label": f"{cursor.year}年{cursor.month}月",
+                "count": count,
+            })
+            total += count
+            cursor = _add_month(cursor)
+
+        return {
+            "success": True,
+            "data": {
+                "mode": "range",
+                "start_month": start_date.strftime("%Y-%m"),
+                "end_month": end_date.strftime("%Y-%m"),
+                "months": months_output,
+                "total": total,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print("get_reservation_trend error:", exc)
+        raise HTTPException(status_code=500, detail="取得預約趨勢資料時發生錯誤")
+
+
+@app.get("/api/dashboard/reservations/status")
+def get_reservation_status_distribution(
+    mode: Literal['monthly', 'range'] = Query('monthly'),
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    start_month: Optional[str] = Query(None, description="日期格式 YYYY-MM"),
+    end_month: Optional[str] = Query(None, description="日期格式 YYYY-MM"),
+):
+    try:
+        mode_value = (mode or 'monthly').lower()
+        if mode_value not in ('monthly', 'range'):
+            raise HTTPException(status_code=400, detail="mode 參數僅支援 monthly 或 range")
+
+        now = get_taipei_time()
+
+        if mode_value == 'monthly':
+            target_year = year or now.year
+            target_month = month or now.month
+            if target_month < 1 or target_month > 12:
+                raise HTTPException(status_code=400, detail="month 需介於 1-12")
+
+            start_date = date(target_year, target_month, 1)
+            last_day = monthrange(target_year, target_month)[1]
+            end_date = date(target_year, target_month, last_day)
+            start_dt, end_dt = _ensure_datetime_window(start_date, end_date)
+
+            rows = _fetch_reservations_in_range(start_dt, end_dt)
+            weeks = _generate_week_ranges(target_year, target_month)
+            week_buckets: List[Dict[str, object]] = []
+            for _ in weeks:
+                week_buckets.append({
+                    "reservation_status": defaultdict(int),
+                    "review_status": defaultdict(int),
+                    "total": 0,
+                })
+
+            reservation_keys: Set[str] = set()
+            review_keys: Set[str] = set()
+
+            for row in rows:
+                event_dt = _normalize_datetime(row.get('event_time'))
+                if not event_dt:
+                    continue
+                event_date = event_dt.date()
+                if event_date < start_date or event_date > end_date:
+                    continue
+                diff = (event_date - start_date).days
+                index = min(diff // 7, len(weeks) - 1)
+                bucket = week_buckets[index]
+                bucket['total'] = bucket['total'] + 1
+
+                r_status = _normalize_status(row.get('reservation_status'))
+                rv_status = _normalize_status(row.get('review_status'))
+                bucket['reservation_status'][r_status] += 1
+                bucket['review_status'][rv_status] += 1
+                reservation_keys.add(r_status)
+                review_keys.add(rv_status)
+
+            reservation_key_order = _sort_status_keys(reservation_keys, RESERVATION_STATUS_PRIORITY)
+            review_key_order = _sort_status_keys(review_keys, REVIEW_STATUS_PRIORITY)
+
+            weeks_output = []
+            total = 0
+            for info, bucket in zip(weeks, week_buckets):
+                total += bucket['total']
+                weeks_output.append({
+                    "week": info['week'],
+                    "label": info['label'],
+                    "start_date": info['start'].isoformat(),
+                    "end_date": info['end'].isoformat(),
+                    "total": bucket['total'],
+                    "reservation_status": {key: bucket['reservation_status'].get(key, 0) for key in reservation_key_order},
+                    "review_status": {key: bucket['review_status'].get(key, 0) for key in review_key_order},
+                })
+
+            return {
+                "success": True,
+                "data": {
+                    "mode": "monthly",
+                    "year": target_year,
+                    "month": target_month,
+                    "weeks": weeks_output,
+                    "total": total,
+                    "reservation_status_keys": reservation_key_order,
+                    "review_status_keys": review_key_order,
+                },
+            }
+
+        # range mode
+        if not start_month or not end_month:
+            raise HTTPException(status_code=400, detail="range 模式需提供 start_month 與 end_month")
+
+        start_date = _parse_month_string(start_month)
+        end_marker = _parse_month_string(end_month)
+        if end_marker < start_date:
+            raise HTTPException(status_code=400, detail="結束月份不可早於開始月份")
+
+        end_date = _month_last_day(end_marker)
+        start_dt, end_dt = _ensure_datetime_window(start_date, end_date)
+        rows = _fetch_reservations_in_range(start_dt, end_dt)
+
+        month_stats: Dict[str, Dict[str, object]] = {}
+        reservation_keys: Set[str] = set()
+        review_keys: Set[str] = set()
+
+        for row in rows:
+            event_dt = _normalize_datetime(row.get('event_time'))
+            if not event_dt:
+                continue
+            event_date = event_dt.date()
+            if event_date < start_date or event_date > end_date:
+                continue
+            key = event_date.strftime("%Y-%m")
+            stats = month_stats.get(key)
+            if stats is None:
+                stats = {
+                    "reservation_status": defaultdict(int),
+                    "review_status": defaultdict(int),
+                    "total": 0,
+                }
+                month_stats[key] = stats
+
+            stats['total'] = stats['total'] + 1
+            r_status = _normalize_status(row.get('reservation_status'))
+            rv_status = _normalize_status(row.get('review_status'))
+            stats['reservation_status'][r_status] += 1
+            stats['review_status'][rv_status] += 1
+            reservation_keys.add(r_status)
+            review_keys.add(rv_status)
+
+        reservation_key_order = _sort_status_keys(reservation_keys, RESERVATION_STATUS_PRIORITY)
+        review_key_order = _sort_status_keys(review_keys, REVIEW_STATUS_PRIORITY)
+
+        months_output = []
+        total = 0
+        cursor = start_date
+        while cursor <= end_date:
+            key = cursor.strftime("%Y-%m")
+            stats = month_stats.get(key)
+            if stats is None:
+                stats = {
+                    "reservation_status": defaultdict(int),
+                    "review_status": defaultdict(int),
+                    "total": 0,
+                }
+            total += stats['total']
+            months_output.append({
+                "month": key,
+                "label": f"{cursor.year}年{cursor.month}月",
+                "total": stats['total'],
+                "reservation_status": {item: stats['reservation_status'].get(item, 0) for item in reservation_key_order},
+                "review_status": {item: stats['review_status'].get(item, 0) for item in review_key_order},
+            })
+            cursor = _add_month(cursor)
+
+        return {
+            "success": True,
+            "data": {
+                "mode": "range",
+                "start_month": start_date.strftime("%Y-%m"),
+                "end_month": end_date.strftime("%Y-%m"),
+                "months": months_output,
+                "total": total,
+                "reservation_status_keys": reservation_key_order,
+                "review_status_keys": review_key_order,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print("get_reservation_status_distribution error:", exc)
+        raise HTTPException(status_code=500, detail="取得預約狀態資料時發生錯誤")
+
 
 # 路線統計（總數/啟用/站點覆蓋率）
 @app.get("/api/dashboard/route-stats")
@@ -2685,5 +3103,5 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: Admin
     db.commit()
     return {"message": "用戶刪除成功"}
 
-# if __name__ == "__main__":
-#     uvicorn.run("app:app", host="0.0.0.0", port=8500, reload=True)
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="0.0.0.0", port=8500, reload=True)

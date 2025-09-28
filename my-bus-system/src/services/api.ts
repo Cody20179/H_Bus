@@ -88,6 +88,78 @@ export interface ReservationStatsResponse {
   error?: string
 }
 
+export interface ReservationTrendWeek {
+  week: number
+  label: string
+  start_date: string
+  end_date: string
+  count: number
+}
+
+export interface ReservationTrendMonth {
+  month: string
+  label: string
+  count: number
+}
+
+export interface ReservationTrendData {
+  mode: 'monthly' | 'range'
+  year?: number
+  month?: number
+  start_month?: string
+  end_month?: string
+  weeks?: ReservationTrendWeek[]
+  months?: ReservationTrendMonth[]
+  total: number
+}
+
+export interface ReservationTrendResponse {
+  success: boolean
+  data: ReservationTrendData
+  error?: string
+}
+
+export interface ReservationStatusBreakdown {
+  [status: string]: number
+}
+
+export interface ReservationStatusWeek {
+  week: number
+  label: string
+  start_date: string
+  end_date: string
+  total: number
+  reservation_status: ReservationStatusBreakdown
+  review_status: ReservationStatusBreakdown
+}
+
+export interface ReservationStatusMonth {
+  month: string
+  label: string
+  total: number
+  reservation_status: ReservationStatusBreakdown
+  review_status: ReservationStatusBreakdown
+}
+
+export interface ReservationStatusData {
+  mode: 'monthly' | 'range'
+  year?: number
+  month?: number
+  start_month?: string
+  end_month?: string
+  weeks?: ReservationStatusWeek[]
+  months?: ReservationStatusMonth[]
+  total: number
+  reservation_status_keys?: string[]
+  review_status_keys?: string[]
+}
+
+export interface ReservationStatusResponse {
+  success: boolean
+  data: ReservationStatusData
+  error?: string
+}
+
 export interface RouteStatsResponse {
   success: boolean
   data: {
@@ -181,6 +253,102 @@ export const dashboardApi = {
           completed: 0,
           last_month: 0,
           growth_rate: 0
+        }
+      }
+    }
+  },
+
+  // 取得預約趨勢（單月／週統計）
+  getReservationTrendMonthly: async (year: number, month: number): Promise<ReservationTrendResponse> => {
+    try {
+      const response = await api.get<ReservationTrendResponse>('/api/dashboard/reservations/trend', {
+        params: { mode: 'monthly', year, month }
+      })
+      return response.data
+    } catch (error) {
+      console.error('取得預約趨勢（單月）失敗:', error)
+      return {
+        success: false,
+        error: '無法取得預約趨勢資料',
+        data: {
+          mode: 'monthly',
+          year,
+          month,
+          weeks: [],
+          total: 0
+        }
+      }
+    }
+  },
+
+  // 取得預約趨勢（月份區間／月統計）
+  getReservationTrendRange: async (startMonth: string, endMonth: string): Promise<ReservationTrendResponse> => {
+    try {
+      const response = await api.get<ReservationTrendResponse>('/api/dashboard/reservations/trend', {
+        params: { mode: 'range', start_month: startMonth, end_month: endMonth }
+      })
+      return response.data
+    } catch (error) {
+      console.error('取得預約趨勢（區間）失敗:', error)
+      return {
+        success: false,
+        error: '無法取得預約趨勢資料',
+        data: {
+          mode: 'range',
+          start_month: startMonth,
+          end_month: endMonth,
+          months: [],
+          total: 0
+        }
+      }
+    }
+  },
+
+  // 取得預約狀態分布（單月／週統計）
+  getReservationStatusMonthly: async (year: number, month: number): Promise<ReservationStatusResponse> => {
+    try {
+      const response = await api.get<ReservationStatusResponse>('/api/dashboard/reservations/status', {
+        params: { mode: 'monthly', year, month }
+      })
+      return response.data
+    } catch (error) {
+      console.error('取得預約狀態分布（單月）失敗:', error)
+      return {
+        success: false,
+        error: '無法取得預約狀態分布資料',
+        data: {
+          mode: 'monthly',
+          year,
+          month,
+          weeks: [],
+          total: 0,
+          reservation_status_keys: [],
+          review_status_keys: []
+        }
+      }
+    }
+  },
+
+  // 取得預約狀態分布（月份區間）
+  getReservationStatusRange: async (startMonth: string, endMonth: string): Promise<ReservationStatusResponse> => {
+    try {
+      const response = await api.get<ReservationStatusResponse>('/api/dashboard/reservations/status', {
+        params: { mode: 'range', start_month: startMonth, end_month: endMonth }
+      })
+      return response.data
+    } catch (error) {
+      console.error('取得預約狀態分布（區間）失敗:', error)
+      return {
+        success: false,
+        error: '無法取得預約狀態分布資料',
+        data: {
+          mode: 'range',
+          start_month: startMonth,
+          end_month: endMonth,
+          months: [],
+          total: 0,
+          reservation_status_keys: [],
+          review_status_keys: []
         }
       }
     }

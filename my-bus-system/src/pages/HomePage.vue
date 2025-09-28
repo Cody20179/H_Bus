@@ -110,12 +110,12 @@
                 <div class="card-title">營收狀況</div>
               </div>
               <div class="card-content">
-                <div class="main-number">₹{{ dashboardData.revenue.today.toLocaleString() }}</div>
+                <div class="main-number">$ {{ dashboardData.revenue.today.toLocaleString() }}</div>
                 <div class="sub-info">
                   <span class="growth positive">{{ dashboardData.revenue.growth }}</span>
                   <span class="period">今日營收</span>
                 </div>
-                <div class="extra-info">本月 ₹{{ dashboardData.revenue.thisMonth.toLocaleString() }}</div>
+                <div class="extra-info">本月 $ {{ dashboardData.revenue.thisMonth.toLocaleString() }}</div>
               </div>
             </div>
 
@@ -141,7 +141,7 @@
             <!-- 管理員數量卡片 -->
             <div class="stat-card admins">
               <div class="card-header">
-                <div class="card-icon">👨‍💼</div>
+                <div class="card-icon">👮‍♀️</div>
                 <div class="card-title">管理員數量</div>
               </div>
               <div class="card-content">
@@ -157,7 +157,7 @@
             <!-- 車輛數量卡片 -->
             <div class="stat-card vehicle-count">
               <div class="card-header">
-                <div class="card-icon">🚐</div>
+                <div class="card-icon">🚌</div>
                 <div class="card-title">車輛數量</div>
               </div>
               <div class="card-content">
@@ -170,26 +170,10 @@
               </div>
             </div>
 
-            <!-- 路線數量卡片 -->
-            <div class="stat-card routes">
-              <div class="card-header">
-                <div class="card-icon">🚌</div>
-                <div class="card-title">路線數量</div>
-              </div>
-              <div class="card-content">
-                <div class="main-number">{{ dashboardData.routes.active }}/{{ dashboardData.routes.total }}</div>
-                <div class="sub-info">
-                  <span class="status-text">上線中</span>
-                 <!-- <span class="period">準點率 {{ dashboardData.routes.onTime }}</span> -->
-                </div>
-                <div class="extra-info">{{ dashboardData.routes.inactive }} 條路線暫停</div>
-              </div>
-            </div>
-
             <!-- 車輛狀態卡片 -->
             <div class="stat-card vehicles">
               <div class="card-header">
-                <div class="card-icon">�</div>
+                <div class="card-icon">🚥</div>
                 <div class="card-title">車輛狀態</div>
               </div>
               <div class="card-content">
@@ -199,6 +183,22 @@
                   <span class="period">{{ dashboardData.vehicles.offline }} 輛離線</span>
                 </div>
                 <div class="extra-info">{{ dashboardData.vehicles.maintenance }} 輛維護中</div>
+              </div>
+            </div>
+            
+            <!-- 路線數量卡片 -->
+            <div class="stat-card routes">
+              <div class="card-header">
+                <div class="card-icon">📌</div>
+                <div class="card-title">路線數量</div>
+              </div>
+              <div class="card-content">
+                <div class="main-number">{{ dashboardData.routes.active }}/{{ dashboardData.routes.total }}</div>
+                <div class="sub-info">
+                  <span class="status-text">上線中</span>
+                 <!-- <span class="period">準點率 {{ dashboardData.routes.onTime }}</span> -->
+                </div>
+                <div class="extra-info">{{ dashboardData.routes.inactive }} 條路線暫停</div>
               </div>
             </div>
           </div>
@@ -421,69 +421,320 @@
             <!-- 預約分析標籤頁 -->
             <div v-show="activeTab === 'reservations'" class="tab-panel">
               <div class="charts-grid">
-                <!-- 本月預約趨勢圖 -->
+                <!-- 預約趨勢 -->
                 <div class="chart-card">
                   <div class="chart-header">
-                    <h3>本月預約趨勢</h3>
-                    <span class="chart-period">2025年9月</span>
+                    <h3>預約趨勢</h3>
+                    <span class="chart-period">
+                      <template v-if="reservationTrendMode === 'monthly'">
+                        {{ reservationTrendYear }} 年 {{ reservationTrendMonth }} 月
+                      </template>
+                      <template v-else>
+                        {{ trendRangeLabel }}
+                      </template>
+                    </span>
                   </div>
                   <div class="chart-content">
-                    <div class="simple-chart">
-                      <div class="chart-bars">
-                        <div class="bar" style="height: 60%"><span>15</span></div>
-                        <div class="bar" style="height: 80%"><span>24</span></div>
-                        <div class="bar" style="height: 45%"><span>12</span></div>
-                        <div class="bar" style="height: 90%"><span>31</span></div>
-                        <div class="bar" style="height: 70%"><span>22</span></div>
-                        <div class="bar" style="height: 85%"><span>28</span></div>
-                        <div class="bar" style="height: 65%"><span>18</span></div>
+                    <div class="chart-toolbar trend-toolbar">
+                      <div class="trend-controls">
+                        <div class="trend-mode-switch">
+                          <button
+                            class="trend-mode-button"
+                            :class="{ active: reservationTrendMode === 'monthly' }"
+                            type="button"
+                            @click="reservationTrendMode = 'monthly'"
+                          >單月</button>
+                          <button
+                            class="trend-mode-button"
+                            :class="{ active: reservationTrendMode === 'range' }"
+                            type="button"
+                            @click="reservationTrendMode = 'range'"
+                          >月份區間</button>
+                        </div>
+
+                        <div class="trend-filter" v-if="reservationTrendMode === 'monthly'">
+                          <label>
+                            <span>年份</span>
+                            <select v-model.number="reservationTrendYear">
+                              <option v-for="year in availableYears" :key="year" :value="year">{{ year }}</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>月份</span>
+                            <select v-model.number="reservationTrendMonth">
+                              <option v-for="month in monthOptions" :key="month" :value="month">{{ month }}</option>
+                            </select>
+                          </label>
+                        </div>
+
+                        <div class="trend-filter" v-else>
+                          <label>
+                            <span>起始</span>
+                            <div class="trend-filter-group">
+                              <select v-model.number="reservationTrendRangeStartYear">
+                                <option v-for="year in availableYears" :key="'start-' + year" :value="year">{{ year }}</option>
+                              </select>
+                              <select v-model.number="reservationTrendRangeStartMonth">
+                                <option v-for="month in monthOptions" :key="'start-' + month" :value="month">{{ month }}</option>
+                              </select>
+                            </div>
+                          </label>
+                          <label>
+                            <span>結束</span>
+                            <div class="trend-filter-group">
+                              <select v-model.number="reservationTrendRangeEndYear">
+                                <option v-for="year in availableYears" :key="'end-' + year" :value="year">{{ year }}</option>
+                              </select>
+                              <select v-model.number="reservationTrendRangeEndMonth">
+                                <option v-for="month in monthOptions" :key="'end-' + month" :value="month">{{ month }}</option>
+                              </select>
+                            </div>
+                          </label>
+                        </div>
                       </div>
-                      <div class="chart-labels">
-                        <span>週一</span><span>週二</span><span>週三</span><span>週四</span><span>週五</span><span>週六</span><span>週日</span>
+                      <div
+                        class="trend-summary"
+                        v-if="!isLoadingReservationTrend && !reservationTrendError"
+                      >
+                        <span>總預約數：{{ reservationTrendTotal.toLocaleString() }} 筆</span>
                       </div>
                     </div>
+
+                    <div v-if="isLoadingReservationTrend" class="loading-state">
+                      <div class="spinner"></div>
+                      <span>載入預約趨勢中...</span>
+                    </div>
+                    <div v-else-if="reservationTrendError" class="error-state">
+                      <span class="error-text">{{ reservationTrendError }}</span>
+                      <button type="button" class="retry-btn" @click="loadReservationTrendData()">重試</button>
+                    </div>
+                    <template v-else>
+                      <div v-if="reservationTrendMode === 'monthly'">
+                        <div v-if="reservationTrendWeeks.length" class="trend-bar-group">
+                          <div class="trend-bar-item" v-for="week in reservationTrendWeeks" :key="week.week">
+                            <div class="trend-bar-value">{{ week.count }}</div>
+                            <div class="trend-bar-stack">
+                              <div
+                                class="trend-bar-fill"
+                                :style="{ height: computeTrendFillHeight(week.count, reservationTrendWeekMax) }"
+                              ></div>
+                            </div>
+                            <div class="trend-bar-base"></div>
+                            <div class="trend-bar-label">{{ week.label }}</div>
+                          </div>
+                        </div>
+                        <div v-else class="empty-state">本月尚無預約資料</div>
+                      </div>
+                      <div v-else>
+                        <div v-if="displayedTrendMonths.length" class="trend-range-wrapper">
+                          <button
+                            class="trend-nav left"
+                            type="button"
+                            :disabled="!canScrollTrendPrev"
+                            @click="scrollTrendMonths('prev')"
+                          >
+                            ‹
+                          </button>
+                          <div class="trend-bar-group range">
+                            <div class="trend-bar-item" v-for="item in displayedTrendMonths" :key="item.month">
+                              <div class="trend-bar-value">{{ item.count }}</div>
+                              <div class="trend-bar-stack">
+                                <div
+                                  class="trend-bar-fill"
+                                  :style="{ height: computeTrendFillHeight(item.count, reservationTrendRangeMax) }"
+                                ></div>
+                              </div>
+                              <div class="trend-bar-base"></div>
+                              <div class="trend-bar-label">{{ item.label }}</div>
+                            </div>
+                          </div>
+                          <button
+                            class="trend-nav right"
+                            type="button"
+                            :disabled="!canScrollTrendNext"
+                            @click="scrollTrendMonths('next')"
+                          >
+                            ›
+                          </button>
+                        </div>
+                        <div v-else class="empty-state">所選區間沒有預約資料</div>
+                      </div>
+                    </template>
                   </div>
                 </div>
-
                 <!-- 預約狀態分布 -->
                 <div class="chart-card">
                   <div class="chart-header">
                     <h3>預約狀態分布</h3>
-                    <span class="chart-period">本月統計</span>
+                    <span class="chart-period">
+                      <template v-if="reservationStatusMode === 'monthly'">
+                        {{ reservationStatusYear }} 年 {{ reservationStatusMonth }} 月
+                      </template>
+                      <template v-else>
+                        {{ statusRangeLabel }}
+                      </template>
+                    </span>
                   </div>
                   <div class="chart-content">
-                    <div class="status-distribution">
-                      <div class="status-bar">
-                        <div class="bar-segment completed" style="width: 70%">
-                          <span class="segment-label">已完成 70%</span>
+                    <div class="chart-toolbar status-toolbar">
+                      <div class="status-controls">
+                        <div class="status-mode-switch">
+                          <button
+                            class="status-mode-button"
+                            :class="{ active: reservationStatusMode === 'monthly' }"
+                            type="button"
+                            @click="reservationStatusMode = 'monthly'"
+                          >單月</button>
+                          <button
+                            class="status-mode-button"
+                            :class="{ active: reservationStatusMode === 'range' }"
+                            type="button"
+                            @click="reservationStatusMode = 'range'"
+                          >月份區間</button>
                         </div>
-                        <div class="bar-segment pending" style="width: 20%">
-                          <span class="segment-label">進行中 20%</span>
+
+                        <div class="status-filter" v-if="reservationStatusMode === 'monthly'">
+                          <label>
+                            <span>年份</span>
+                            <select v-model.number="reservationStatusYear">
+                              <option v-for="year in availableYears" :key="'status-year-' + year" :value="year">{{ year }}</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>月份</span>
+                            <select v-model.number="reservationStatusMonth">
+                              <option v-for="month in monthOptions" :key="'status-month-' + month" :value="month">{{ month }}</option>
+                            </select>
+                          </label>
                         </div>
-                        <div class="bar-segment cancelled" style="width: 10%">
-                          <span class="segment-label">已取消 10%</span>
+
+                        <div class="status-filter" v-else>
+                          <label>
+                            <span>起始</span>
+                            <div class="trend-filter-group">
+                              <select v-model.number="reservationStatusRangeStartYear">
+                                <option v-for="year in availableYears" :key="'sr-start-' + year" :value="year">{{ year }}</option>
+                              </select>
+                              <select v-model.number="reservationStatusRangeStartMonth">
+                                <option v-for="month in monthOptions" :key="'sr-start-' + month" :value="month">{{ month }}</option>
+                              </select>
+                            </div>
+                          </label>
+                          <label>
+                            <span>結束</span>
+                            <div class="trend-filter-group">
+                              <select v-model.number="reservationStatusRangeEndYear">
+                                <option v-for="year in availableYears" :key="'sr-end-' + year" :value="year">{{ year }}</option>
+                              </select>
+                              <select v-model.number="reservationStatusRangeEndMonth">
+                                <option v-for="month in monthOptions" :key="'sr-end-' + month" :value="month">{{ month }}</option>
+                              </select>
+                            </div>
+                          </label>
                         </div>
                       </div>
-                      <div class="status-legend">
-                        <div class="legend-item">
-                          <span class="legend-color completed"></span>
-                          <span>已完成 ({{ dashboardData.reservations.completed }})</span>
-                        </div>
-                        <div class="legend-item">
-                          <span class="legend-color pending"></span>
-                          <span>進行中 ({{ dashboardData.reservations.pending }})</span>
-                        </div>
-                        <div class="legend-item">
-                          <span class="legend-color cancelled"></span>
-                          <span>已取消 (8)</span>
-                        </div>
+                      <div
+                        class="status-summary"
+                        v-if="!isLoadingReservationStatus && !reservationStatusError"
+                      >
+                        <span>總預約數：{{ reservationStatusTotal.toLocaleString() }} 筆</span>
                       </div>
                     </div>
+
+                    <div v-if="isLoadingReservationStatus" class="loading-state">
+                      <div class="spinner"></div>
+                      <span>載入預約狀態中...</span>
+                    </div>
+                    <div v-else-if="reservationStatusError" class="error-state">
+                      <span class="error-text">{{ reservationStatusError }}</span>
+                      <button type="button" class="retry-btn" @click="loadReservationStatusData()">重試</button>
+                    </div>
+                    <template v-else>
+                      <div v-if="reservationStatusMode === 'monthly'">
+                        <div v-if="reservationStatusTotal > 0" class="status-monthly-wrapper">
+                          <div class="status-table">
+                            <div class="status-table-title">預約狀態</div>
+                            <div class="status-table-body">
+                              <div class="status-row" v-for="key in reservationStatusReservationKeys" :key="'month-res-' + key">
+                                <div class="status-row-name">{{ translateReservationStatus(key) }}</div>
+                                <div class="status-row-meter">
+                                  <div
+                                    class="status-row-fill"
+                                    :style="{ width: computeStatusPercent(reservationStatusMonthlyTotals.reservations[key] || 0, reservationStatusTotal) }"
+                                  ></div>
+                                </div>
+                                <div class="status-row-count">{{ reservationStatusMonthlyTotals.reservations[key] || 0 }} 筆</div>
+                              </div>
+                            </div>
+                          </div>
+                          <div class="status-table review">
+                            <div class="status-table-title">審核狀態</div>
+                            <div class="status-table-body">
+                              <div class="status-row" v-for="key in reservationStatusReviewKeys" :key="'month-rev-' + key">
+                                <div class="status-row-name">{{ translateReviewStatus(key) }}</div>
+                                <div class="status-row-meter">
+                                  <div
+                                    class="status-row-fill review"
+                                    :style="{ width: computeStatusPercent(reservationStatusMonthlyTotals.reviews[key] || 0, reservationStatusTotal) }"
+                                  ></div>
+                                </div>
+                                <div class="status-row-count">{{ reservationStatusMonthlyTotals.reviews[key] || 0 }} 筆</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div v-else class="empty-state">本月尚無狀態資料</div>
+                      </div>
+                      <div v-else>
+                        <div v-if="reservationStatusMonths.length" class="status-range-scroll">
+                          <div class="status-range-grid">
+                            <div class="status-range-card" v-for="month in reservationStatusMonths" :key="month.month">
+                              <div class="status-range-header">
+                                <span class="status-range-title">{{ month.label }}</span>
+                                <span class="status-range-total">{{ month.total }} 筆</span>
+                              </div>
+                              <div class="status-card-columns">
+                                <div class="status-mini-table">
+                                  <div class="status-mini-title">預約狀態</div>
+                                  <div class="status-mini-body">
+                                    <div class="status-mini-row" v-for="key in reservationStatusReservationKeys" :key="'range-res-' + month.month + key">
+                                      <span class="status-mini-name">{{ translateReservationStatus(key) }}</span>
+                                      <div class="status-mini-meter">
+                                        <div
+                                          class="status-mini-fill"
+                                          :style="{ width: computeStatusPercent(month.reservation_status[key], month.total) }"
+                                        ></div>
+                                      </div>
+                                      <span class="status-mini-count">{{ month.reservation_status[key] ?? 0 }} 筆</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div class="status-mini-table review">
+                                  <div class="status-mini-title">審核狀態</div>
+                                  <div class="status-mini-body">
+                                    <div class="status-mini-row" v-for="key in reservationStatusReviewKeys" :key="'range-rev-' + month.month + key">
+                                      <span class="status-mini-name">{{ translateReviewStatus(key) }}</span>
+                                      <div class="status-mini-meter">
+                                        <div
+                                          class="status-mini-fill review"
+                                          :style="{ width: computeStatusPercent(month.review_status[key], month.total) }"
+                                        ></div>
+                                      </div>
+                                      <span class="status-mini-count">{{ month.review_status[key] ?? 0 }} 筆</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div v-else class="empty-state">所選區間沒有狀態資料</div>
+                      </div>
+                    </template>
                   </div>
                 </div>
               </div>
             </div>
-
             <!-- 營收分析標籤頁 -->
             <div v-show="activeTab === 'revenue'" class="tab-panel">
               <div class="charts-grid">
@@ -647,7 +898,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { logout as authLogout, getCurrentUser } from '../services/authService'
-import { dashboardApi, carApi } from '../services/api'
+import { dashboardApi, carApi, type ReservationTrendWeek, type ReservationTrendMonth, type ReservationStatusWeek, type ReservationStatusMonth, type ReservationStatusResponse } from '../services/api'
 
 const router = useRouter()
 const hidden = ref(false)
@@ -720,6 +971,182 @@ const memberActivitySummary = ref({
 
 // 會員活躍度載入狀態
 const isLoadingActivity = ref(false)
+
+const today = new Date()
+const currentYear = today.getFullYear()
+const currentMonth = today.getMonth() + 1
+const defaultRangeSpan = 5
+
+const monthOptions = Array.from({ length: 12 }, (_, index) => index + 1)
+const availableYears = computed(() => {
+  const years: number[] = []
+  for (let offset = 0; offset <= 5; offset += 1) {
+    years.push(currentYear - offset)
+  }
+  return years
+})
+
+function formatMonth(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}`
+}
+
+function formatMonthDisplay(year: number, month: number): string {
+  return `${year}年${month}月`
+}
+
+function parseMonthToParts(value: string): { year: number; month: number } | null {
+  if (!value) return null
+  const [yearStr, monthStr] = value.split('-')
+  const year = Number(yearStr)
+  const month = Number(monthStr)
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return null
+  return { year, month }
+}
+
+function shiftMonth(year: number, month: number, offset: number): { year: number; month: number } {
+  const base = month - 1 + offset
+  const newYear = year + Math.floor(base / 12)
+  const newMonth = ((base % 12) + 12) % 12 + 1
+  return { year: newYear, month: newMonth }
+}
+
+// 預約趨勢狀態
+const reservationTrendMode = ref<'monthly' | 'range'>('monthly')
+const reservationTrendYear = ref(currentYear)
+const reservationTrendMonth = ref(currentMonth)
+const defaultTrendRangeStart = shiftMonth(currentYear, currentMonth, -defaultRangeSpan)
+const reservationTrendRangeStartYear = ref(defaultTrendRangeStart.year)
+const reservationTrendRangeStartMonth = ref(defaultTrendRangeStart.month)
+const reservationTrendRangeEndYear = ref(currentYear)
+const reservationTrendRangeEndMonth = ref(currentMonth)
+const reservationTrendWeeks = ref<ReservationTrendWeek[]>([])
+const reservationTrendMonths = ref<ReservationTrendMonth[]>([])
+const reservationTrendTotal = ref(0)
+const isLoadingReservationTrend = ref(false)
+const reservationTrendError = ref('')
+const MAX_TREND_RANGE_BARS = 6
+const trendRangeWindowStart = ref(0)
+const displayedTrendMonths = computed(() => {
+  return reservationTrendMonths.value.slice(
+    trendRangeWindowStart.value,
+    trendRangeWindowStart.value + MAX_TREND_RANGE_BARS
+  )
+})
+const reservationTrendWeekMax = computed(() => {
+  const counts = reservationTrendWeeks.value.map((item) => item.count)
+  return counts.length ? Math.max(...counts) : 0
+})
+const reservationTrendRangeMax = computed(() => {
+  const counts = displayedTrendMonths.value.map((item) => item.count)
+  return counts.length ? Math.max(...counts) : 0
+})
+const canScrollTrendPrev = computed(() => trendRangeWindowStart.value > 0)
+const canScrollTrendNext = computed(() => trendRangeWindowStart.value + MAX_TREND_RANGE_BARS < reservationTrendMonths.value.length)
+const trendRangeLabel = computed(() => {
+  return `${formatMonthDisplay(reservationTrendRangeStartYear.value, reservationTrendRangeStartMonth.value)} - ${formatMonthDisplay(reservationTrendRangeEndYear.value, reservationTrendRangeEndMonth.value)}`
+})
+
+function scrollTrendMonths(direction: 'prev' | 'next') {
+  if (direction === 'prev' && canScrollTrendPrev.value) {
+    trendRangeWindowStart.value = Math.max(0, trendRangeWindowStart.value - MAX_TREND_RANGE_BARS)
+  } else if (direction === 'next' && canScrollTrendNext.value) {
+    const maxStart = Math.max(0, reservationTrendMonths.value.length - MAX_TREND_RANGE_BARS)
+    trendRangeWindowStart.value = Math.min(maxStart, trendRangeWindowStart.value + MAX_TREND_RANGE_BARS)
+  }
+}
+
+// 預約狀態分布狀態
+const reservationStatusMode = ref<'monthly' | 'range'>('monthly')
+const reservationStatusYear = ref(currentYear)
+const reservationStatusMonth = ref(currentMonth)
+const reservationStatusRangeStartYear = ref(defaultTrendRangeStart.year)
+const reservationStatusRangeStartMonth = ref(defaultTrendRangeStart.month)
+const reservationStatusRangeEndYear = ref(currentYear)
+const reservationStatusRangeEndMonth = ref(currentMonth)
+const reservationStatusWeeks = ref<ReservationStatusWeek[]>([])
+const reservationStatusMonths = ref<ReservationStatusMonth[]>([])
+const reservationStatusReservationKeys = ref<string[]>([])
+const reservationStatusReviewKeys = ref<string[]>([])
+const reservationStatusTotal = ref(0)
+const isLoadingReservationStatus = ref(false)
+const reservationStatusError = ref('')
+const statusRangeLabel = computed(() => {
+  return `${formatMonthDisplay(reservationStatusRangeStartYear.value, reservationStatusRangeStartMonth.value)} - ${formatMonthDisplay(reservationStatusRangeEndYear.value, reservationStatusRangeEndMonth.value)}`
+})
+
+const reservationStatusMonthlyTotals = computed(() => {
+  if (reservationStatusMode.value !== 'monthly') {
+    return { reservations: {} as Record<string, number>, reviews: {} as Record<string, number> }
+  }
+  const reservationTotals: Record<string, number> = {}
+  reservationStatusReservationKeys.value.forEach((key) => {
+    reservationTotals[key] = 0
+  })
+  const reviewTotals: Record<string, number> = {}
+  reservationStatusReviewKeys.value.forEach((key) => {
+    reviewTotals[key] = 0
+  })
+  reservationStatusWeeks.value.forEach((week) => {
+    reservationStatusReservationKeys.value.forEach((key) => {
+      reservationTotals[key] = (reservationTotals[key] || 0) + (week.reservation_status[key] ?? 0)
+    })
+    reservationStatusReviewKeys.value.forEach((key) => {
+      reviewTotals[key] = (reviewTotals[key] || 0) + (week.review_status[key] ?? 0)
+    })
+  })
+  return { reservations: reservationTotals, reviews: reviewTotals }
+})
+
+const MIN_STATUS_PERCENT = 8
+const reservationStatusLabelMap: Record<string, string> = {
+  pending: '待處理',
+  approved: '已核准',
+  assigned: '已派車',
+  in_progress: '執行中',
+  completed: '已完成',
+  canceled: '已取消',
+  cancelled: '已取消',
+  rejected: '已拒絕',
+  failed: '異常',
+  '0': '預約未完成',
+  '1': '預約已完成',
+  no_reservation: '尚未預約',
+  unknown: '其他'
+}
+const reviewStatusLabelMap: Record<string, string> = {
+  pending: '待審核',
+  approved: '審核通過',
+  rejected: '審核拒絕',
+  canceled: '已取消',
+  cancelled: '已取消',
+  completed: '已完成',
+  unknown: '其他'
+}
+
+function translateReservationStatus(key: string): string {
+  return reservationStatusLabelMap[key] ?? key
+}
+
+function translateReviewStatus(key: string): string {
+  return reviewStatusLabelMap[key] ?? key
+}
+
+function computeStatusPercent(value: number | undefined, total: number): string {
+  if (!value || value <= 0 || total <= 0) {
+    return `${MIN_STATUS_PERCENT}%`
+  }
+  const percent = Math.round((value / total) * 100)
+  const clamped = Math.min(100, Math.max(MIN_STATUS_PERCENT, percent))
+  return `${clamped}%`
+}
+
+function computeTrendFillHeight(count: number, max: number): string {
+  if (!max || !Number.isFinite(max) || !count || count <= 0) {
+    return '0%';
+  }
+  const ratio = (count / max) * 100;
+  return `${Math.max(ratio, 12)}%`;
+}
 
 // 計算 Y 軸刻度
 const yAxisTicks = computed(() => {
@@ -802,8 +1229,6 @@ function handlePointHover(point: { x: number; y: number; value: number; date: st
   hoveredPoint.value = point
   showTooltip.value = true
 }
-
-// （保留原本靜態預約分析區塊，無額外資料載入）
 
 function handlePointLeave() {
   showTooltip.value = false
@@ -955,50 +1380,50 @@ const dashboardData = ref({
     vipCount: 0,
     growth: '+0%'
   },
-  // 預約相關數據 (暫時保持模擬資料)
+  // 預約相關數據
   reservations: {
-    thisMonth: 87,
-    todayNew: 15,
-    pending: 3,
-    completed: 84,
-    growth: '+12.5%'
+    thisMonth: 0,
+    todayNew: 0,
+    pending: 0,
+    completed: 0,
+    growth: '+0%'
   },
-  // 營收相關數據 (暫時保持模擬資料)
+  // 營收相關數據
   revenue: {
-    today: 12450,
-    thisMonth: 285000,
-    lastMonth: 267000,
-    growth: '+6.7%'
+    today: 0,
+    thisMonth: 0,
+    lastMonth: 0,
+    growth: '+0%'
   },
-  // 資料庫狀況 (新增)
+  // 資料庫狀況
   database: {
     status: '正常',
-    connectionTime: 45,
-    totalTables: 6,
+    connectionTime: 0,
+    totalTables: 0,
     health: '良好'
   },
-  // 管理員數量 (新增)
+  // 管理員數量
   admins: {
     total: 0,
-    online: 1,
-    roles: 2,
-    activeToday: 1
+    online: 0,
+    roles: 0,
+    activeToday: 0
   },
-  // 車輛數量 (新增)
+  // 車輛數量
   vehicleCount: {
     total: 0,
     newThisMonth: 0,
     available: 0,
     inUse: 0
   },
-  // 路線相關數據 (暫時保持模擬資料)
+  // 路線相關數據
   routes: {
-    total: 14,
-    active: 12,
-    inactive: 2,
-    onTime: '96.8%'
+    total: 0,
+    active: 0,
+    inactive: 0,
+    onTime: '0%'
   },
-  // 車輛狀態相關數據 (暫時保持模擬資料)
+  // 車輛狀態相關數據
   vehicles: {
     total: 0,
     online: 0,
@@ -1113,6 +1538,91 @@ async function loadReservationStats() {
   }
 }
 
+async function loadReservationTrendData() {
+  if (isLoadingReservationTrend.value) return
+  isLoadingReservationTrend.value = true
+  reservationTrendError.value = ''
+  try {
+    if (reservationTrendMode.value === 'monthly') {
+      const response = await dashboardApi.getReservationTrendMonthly(reservationTrendYear.value, reservationTrendMonth.value)
+      if (!response.success) {
+        throw new Error(response.error || '取得預約趨勢資料失敗')
+      }
+      const data = response.data || { weeks: [], total: 0 }
+      reservationTrendWeeks.value = data.weeks || []
+      reservationTrendMonths.value = []
+      reservationTrendTotal.value = data.total ?? 0
+    } else {
+      const start = formatMonth(reservationTrendRangeStartYear.value, reservationTrendRangeStartMonth.value)
+      const end = formatMonth(reservationTrendRangeEndYear.value, reservationTrendRangeEndMonth.value)
+      const response = await dashboardApi.getReservationTrendRange(start, end)
+      if (!response.success) {
+        throw new Error(response.error || '取得預約趨勢資料失敗')
+      }
+      const data = response.data || { months: [], total: 0 }
+      reservationTrendMonths.value = data.months || []
+      reservationTrendWeeks.value = []
+      reservationTrendTotal.value = data.total ?? 0
+      trendRangeWindowStart.value = 0
+    }
+  } catch (error: any) {
+    console.error('載入預約趨勢失敗:', error)
+    reservationTrendError.value = error?.message ?? '無法取得預約趨勢資料'
+    reservationTrendWeeks.value = []
+    reservationTrendMonths.value = []
+    reservationTrendTotal.value = 0
+  } finally {
+    isLoadingReservationTrend.value = false
+  }
+}
+
+async function loadReservationStatusData() {
+  if (isLoadingReservationStatus.value) return
+  isLoadingReservationStatus.value = true
+  reservationStatusError.value = ''
+  try {
+    let response: ReservationStatusResponse
+    if (reservationStatusMode.value === 'monthly') {
+      response = await dashboardApi.getReservationStatusMonthly(reservationStatusYear.value, reservationStatusMonth.value)
+    } else {
+      const start = formatMonth(reservationStatusRangeStartYear.value, reservationStatusRangeStartMonth.value)
+      const end = formatMonth(reservationStatusRangeEndYear.value, reservationStatusRangeEndMonth.value)
+      response = await dashboardApi.getReservationStatusRange(start, end)
+    }
+
+    if (!response.success) {
+      throw new Error(response.error || '取得預約狀態資料失敗')
+    }
+
+    const data = response.data || { total: 0 }
+
+    if (reservationStatusMode.value === 'monthly') {
+      reservationStatusWeeks.value = data.weeks || []
+      reservationStatusMonths.value = []
+    } else {
+      reservationStatusMonths.value = data.months || []
+      reservationStatusWeeks.value = []
+    }
+
+    reservationStatusTotal.value = data.total ?? 0
+
+    const reservationKeys = data.reservation_status_keys || []
+    const reviewKeys = data.review_status_keys || []
+    reservationStatusReservationKeys.value = reservationKeys.length ? reservationKeys : ['unknown']
+    reservationStatusReviewKeys.value = reviewKeys.length ? reviewKeys : ['unknown']
+  } catch (error: any) {
+    console.error('載入預約狀態失敗:', error)
+    reservationStatusError.value = error?.message ?? '無法取得預約狀態資料'
+    reservationStatusWeeks.value = []
+    reservationStatusMonths.value = []
+    reservationStatusReservationKeys.value = ['unknown']
+    reservationStatusReviewKeys.value = ['unknown']
+    reservationStatusTotal.value = 0
+  } finally {
+    isLoadingReservationStatus.value = false
+  }
+}
+
 // 載入路線統計資料（總數/啟用/停用/覆蓋率）
 async function loadVehicleStats() {
   try {
@@ -1183,6 +1693,8 @@ async function loadDashboardData() {
       loadAdminStats(),     // 管理員統計 (真實資料)
       loadDatabaseStats(),  // 資料庫統計 (真實資料)
       loadReservationStats(), // 本月預約 (接資料庫)
+      loadReservationTrendData(), // 預約趨勢
+      loadReservationStatusData(), // 預約狀態分布
       loadRouteStats(),      // 路線數量 (接資料庫)
       loadVehicleStats()     // 車輛統計 (car_resource)
     ])
@@ -1228,12 +1740,70 @@ onMounted(() => {
   // 載入會員活躍度數據
   loadMemberActivityData()
 
-  // （預約分析圖表為靜態示意，無需載入）
 })
 
 // 監聽會員增長時間範圍變更
 watch(memberGrowthPeriod, () => {
   loadMemberGrowthData()
+})
+
+const trendRangeStartKey = computed(() => formatMonth(reservationTrendRangeStartYear.value, reservationTrendRangeStartMonth.value))
+const trendRangeEndKey = computed(() => formatMonth(reservationTrendRangeEndYear.value, reservationTrendRangeEndMonth.value))
+const statusRangeStartKey = computed(() => formatMonth(reservationStatusRangeStartYear.value, reservationStatusRangeStartMonth.value))
+const statusRangeEndKey = computed(() => formatMonth(reservationStatusRangeEndYear.value, reservationStatusRangeEndMonth.value))
+
+watch(reservationTrendMode, () => {
+  trendRangeWindowStart.value = 0
+  loadReservationTrendData()
+})
+
+watch(() => formatMonth(reservationTrendYear.value, reservationTrendMonth.value), () => {
+  if (reservationTrendMode.value === 'monthly') {
+    loadReservationTrendData()
+  }
+})
+
+watch([trendRangeStartKey, trendRangeEndKey], ([start, end]) => {
+  if (reservationTrendMode.value !== 'range') return
+  if (start > end) {
+    const parsed = parseMonthToParts(end)
+    if (parsed) {
+      reservationTrendRangeStartYear.value = parsed.year
+      reservationTrendRangeStartMonth.value = parsed.month
+    }
+    return
+  }
+  trendRangeWindowStart.value = 0
+  loadReservationTrendData()
+})
+
+watch(reservationTrendMonths, () => {
+  if (trendRangeWindowStart.value >= reservationTrendMonths.value.length) {
+    trendRangeWindowStart.value = Math.max(0, reservationTrendMonths.value.length - MAX_TREND_RANGE_BARS)
+  }
+})
+
+watch(reservationStatusMode, () => {
+  loadReservationStatusData()
+})
+
+watch(() => formatMonth(reservationStatusYear.value, reservationStatusMonth.value), () => {
+  if (reservationStatusMode.value === 'monthly') {
+    loadReservationStatusData()
+  }
+})
+
+watch([statusRangeStartKey, statusRangeEndKey], ([start, end]) => {
+  if (reservationStatusMode.value !== 'range') return
+  if (start > end) {
+    const parsed = parseMonthToParts(end)
+    if (parsed) {
+      reservationStatusRangeStartYear.value = parsed.year
+      reservationStatusRangeStartMonth.value = parsed.month
+    }
+    return
+  }
+  loadReservationStatusData()
 })
 
 function onResize() {
@@ -1448,6 +2018,16 @@ function logout(){
   margin-right: auto;
 }
 
+.charts-section {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 24px;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto 32px;
+}
+
 /* 統計卡片排 */
 .stats-row {
   display: grid;
@@ -1620,42 +2200,40 @@ function logout(){
 
 /* 不同卡片的個性化顏色 */
 .stat-card.members .card-icon {
-  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  background: linear-gradient(135deg, #e6e7e8, #f2f3f4);
 }
 
 .stat-card.reservations .card-icon {
-  background: linear-gradient(135deg, #06b6d4, #0891b2);
+  background: linear-gradient(135deg, #e6e7e8, #f2f3f4);
 }
 
 .stat-card.revenue .card-icon {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
+  background: linear-gradient(135deg, #e6e7e8, #f2f3f4);
 }
 
 .stat-card.database .card-icon {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  background: linear-gradient(135deg, #e6e7e8, #f2f3f4);
 }
 
 .stat-card.admins .card-icon {
-  background: linear-gradient(135deg, #14b8a6, #0d9488);
+  background: linear-gradient(135deg, #e6e7e8, #f2f3f4);
 }
 
 .stat-card.vehicle-count .card-icon {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
+  background: linear-gradient(135deg, #e6e7e8, #f2f3f4);
 }
 
 .stat-card.routes .card-icon {
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: linear-gradient(135deg, #e6e7e8, #f2f3f4);
 }
 
 .stat-card.vehicles .card-icon {
-  background: linear-gradient(135deg, #84cc16, #65a30d);
+  background: linear-gradient(135deg, #e6e7e8, #f2f3f4);
 }
 
-/* 圖表區域樣式 */
-.charts-section {
-  max-width: 1400px;
-  margin: 0 auto 32px;
-}
+/* 確保對比 */
+.stat-card .card-icon { color: #fff; }
+
 
 /* 標籤頁導航樣式 */
 .tabs-navigation {
@@ -1714,6 +2292,7 @@ function logout(){
   margin-right: auto;
   display: flex;
   flex-direction: column;
+  width: 100%;
 }
 
 .tab-panel {
@@ -2734,4 +3313,411 @@ button:hover{ opacity:0.95; }
     gap: 12px;
   }
 }
+.chart-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.trend-controls,
+.status-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+
+.trend-summary,
+.status-summary {
+  font-size: 14px;
+  color: #334155;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chart-toolbar .trend-summary,
+.chart-toolbar .status-summary {
+  margin-left: auto;
+}
+
+.trend-mode-switch,
+.status-mode-switch {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.trend-mode-button,
+.status-mode-button {
+  padding: 6px 14px;
+  border: 1px solid #cbd5f5;
+  border-radius: 999px;
+  background: #fff;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.trend-mode-button.active,
+.status-mode-button.active {
+  background: linear-gradient(135deg, #0ea5e9, #3b82f6);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.trend-mode-button:disabled,
+.status-mode-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.trend-filter,
+.status-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+
+.trend-filter label,
+.status-filter label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.trend-filter select,
+.status-filter select {
+  min-width: 90px;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.trend-filter-group {
+  display: flex;
+  gap: 8px;
+}
+
+.trend-bar-group {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 12px;
+}
+
+.trend-bar-group.range {
+  flex: 1;
+  justify-content: space-around;
+}
+
+.trend-range-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+}
+
+.trend-bar-item {
+  flex: 1;
+  min-width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.trend-bar-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f97316;
+}
+
+.trend-bar-stack {
+  width: 40px;
+  height: 140px;
+  border-radius: 20px 20px 12px 12px;
+  background: linear-gradient(180deg, rgba(249, 181, 106, 0.4) 0%, rgba(248, 196, 113, 0.12) 100%);
+  box-shadow: inset 0 -4px 8px rgba(255, 183, 77, 0.18);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.trend-bar-fill {
+  width: 100%;
+  height: 0;
+  border-radius: 20px 20px 12px 12px;
+  background: linear-gradient(180deg, #ffae4d 0%, #f97316 100%);
+  box-shadow: 0 12px 20px rgba(249, 115, 22, 0.32);
+  transition: height 0.3s ease;
+}
+
+.trend-bar-base {
+  width: 56px;
+  height: 18px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff 0%, #dbeafe 100%);
+  box-shadow: inset 0 2px 6px rgba(15, 23, 42, 0.14);
+  margin-top: -6px;
+}
+
+.trend-bar-label {
+  font-size: 13px;
+  color: #475569;
+  text-align: center;
+}
+
+.trend-nav {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid #cbd5f5;
+  background: #fff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.trend-nav:hover:not(:disabled) {
+  background: #eff6ff;
+}
+
+.trend-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.status-monthly-wrapper {
+  display: flex;
+  gap: 18px;
+  margin-top: 8px;
+}
+
+.status-table {
+  flex: 1;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-table.review {
+  background: #f6f5ff;
+  border-color: #e8e7ff;
+}
+
+.status-table-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.status-table-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-row {
+  display: grid;
+  grid-template-columns: 1fr 120px auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-row-name {
+  font-size: 13px;
+  color: #475569;
+}
+
+.status-row-meter {
+  position: relative;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.status-row-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #38bdf8 0%, #0ea5e9 100%);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.status-row-fill.review {
+  background: linear-gradient(180deg, #c084fc 0%, #8b5cf6 100%);
+}
+
+.status-row-count {
+  font-size: 12px;
+  color: #1f2937;
+  text-align: right;
+  font-weight: 600;
+}
+
+.status-range-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.status-range-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.status-range-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.status-range-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #1f2937;
+}
+
+.status-range-total {
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.status-card-columns {
+  display: flex;
+  gap: 12px;
+}
+
+.status-mini-table {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-mini-table.review {
+  background: none;
+}
+
+.status-mini-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.status-mini-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-mini-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #475569;
+}
+
+.status-mini-meter {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.status-mini-fill {
+  height: 100%;
+  background: linear-gradient(180deg, #38bdf8 0%, #0ea5e9 100%);
+  transition: width 0.3s ease;
+}
+
+.status-mini-fill.review {
+  background: linear-gradient(180deg, #c084fc 0%, #8b5cf6 100%);
+}
+
+.status-mini-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+@media (max-width: 900px) {
+  .trend-bar-group {
+    gap: 16px;
+  }
+
+  .trend-bar-item {
+    min-width: 60px;
+  }
+
+  .status-monthly-wrapper {
+    flex-direction: column;
+  }
+
+  .status-card-columns {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 768px) {
+  .trend-range-wrapper {
+    gap: 12px;
+  }
+
+  .trend-bar-group {
+    gap: 14px;
+  }
+
+  .trend-bar-item {
+    min-width: 56px;
+  }
+
+  .status-range-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .status-card-columns {
+    flex-direction: column;
+  }
+
+  .status-monthly-wrapper {
+    gap: 14px;
+  }
+}
+
 </style>
