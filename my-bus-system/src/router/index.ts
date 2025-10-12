@@ -5,6 +5,8 @@ import HomePage from '../pages/HomePage.vue'
 import AdminManagement from '../pages/AdminManagement.vue'
 import MemberManagement from '../pages/MemberManagement.vue'
 import RouteManagement from '../pages/RouteManagement.vue'
+import EmailReminderManagement from '../pages/EmailReminderManagement.vue'
+import QrCodeGenerator from '../pages/QrCodeGenerator.vue'
 import ReservationManagement from '../pages/ReservationManagement.vue'
 import CarManagement from '../pages/CarManagement.vue'
 import { isLoggedIn } from '../services/authService'
@@ -14,7 +16,7 @@ const routes = [
   { 
     path: '/home', 
     component: HomePage,
-    meta: { requiresAuth: true }, // 標記需要認證
+    meta: { requiresAuth: true },
     children: [
       {
         path: 'admin-management',
@@ -40,6 +42,16 @@ const routes = [
         path: 'route-management',
         component: RouteManagement,
         meta: { requiresAuth: true }
+      },
+      {
+        path: 'email-reminder',
+        component: EmailReminderManagement,
+        meta: { requiresAuth: true }
+      },
+      {
+        path: 'qr-generator',
+        component: QrCodeGenerator,
+        meta: { requiresAuth: true }
       }
     ]
   },
@@ -50,26 +62,23 @@ const router = createRouter({
   routes,
 })
 
-// 路由守衛：檢查認證狀態
 router.beforeEach((to, _from, next) => {
-  console.log('🛡️ 路由守衛檢查:', to.path)
+  console.log('路由導航觸發:', to.path)
   
-  // 如果目標路由需要認證
   if (to.meta.requiresAuth) {
     if (isLoggedIn()) {
-      console.log('已登入，允許進入', to.path)
-      next() // 允許進入
+      console.log('已登入，進入:', to.path)
+      next()
     } else {
-      console.log('未登入，重定向到登入頁')
-      next('/') // 重定向到登入頁
+      console.log('未登入，導回登入頁')
+      next('/')
     }
   } else {
-    // 如果已登入且要去登入頁，直接跳到首頁
     if (to.path === '/' && isLoggedIn()) {
-      console.log('已登入，直接跳轉到首頁')
+      console.log('已登入，直接導向首頁')
       next('/home')
     } else {
-      next() // 允許進入
+      next()
     }
   }
 })

@@ -421,7 +421,6 @@ const currentUser = ref<any>(null)
 const currentUserRole = ref<string>('')
 const isSuperAdmin = computed(() => currentUserRole.value === 'super_admin')
 const isAdmin = computed(() => currentUserRole.value === 'admin')
-const isDispatcher = computed(() => currentUserRole.value === 'dispatcher')
 // 是否可以管理會員（超管/高管）
 const canManageMembers = computed(() => isSuperAdmin.value || isAdmin.value)
 

@@ -178,7 +178,13 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
                 {loading && <div className="muted">載入中…</div>}
                 {error && <div className="muted" style={{ color: '#c25' }}>{error}</div>}
                 {displayStops.map((s, idx) => {
-                  const isHighlight = highlightStop && (s.order === highlightStop)
+                const isHighlight =
+                  highlightStop !== null &&
+                  highlightStop !== undefined &&
+                  (s.order === highlightStop ||
+                  s.stop_order === highlightStop ||
+                  Number(s['站次']) === highlightStop)
+
                   return (
                     <div
                       key={idx}
@@ -305,13 +311,6 @@ function RouteMap({ stops, cars, route }) {
   const layerStopsRef = useRef(null)
   const layerBusRef = useRef(null)
 
-  function ensurePolylineDecorator() {
-    return new Promise((resolve) => {
-      if (window.L && window.L.polylineDecorator) return resolve(true)
-      import('leaflet-polylinedecorator').then(() => resolve(true))
-    })
-  }
-
   useEffect(() => {
     if (!ready || !elRef.current || mapRef.current) return
     const L = window.L
@@ -324,32 +323,63 @@ function RouteMap({ stops, cars, route }) {
     layerBusRef.current = L.layerGroup().addTo(map)
   }, [ready])
 
+  // (A) 畫路線 + 站點，只在 stops 改變時觸發
   useEffect(() => {
     if (!ready || !mapRef.current) return
     const L = window.L
     const routeLayer = layerRouteRef.current
     const stopLayer = layerStopsRef.current
-    const busLayer = layerBusRef.current
-    routeLayer.clearLayers(); stopLayer.clearLayers(); busLayer.clearLayers()
+    routeLayer.clearLayers(); stopLayer.clearLayers()
 
-    const ordered = (stops || [])
-      .slice()
-      .sort((a,b) => (a.order ?? a.stop_order ?? 0) - (b.order ?? b.stop_order ?? 0))
-
-    const llOriginal = ordered.map((s) => {
-      const lat = Number(s.latitude ?? s.lat), lng = Number(s.longitude ?? s.lng)
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-      return [lat, lng]
+    const ordered = (stops || []).slice().sort((a,b) => (a.order ?? a.stop_order ?? 0) - (b.order ?? b.stop_order ?? 0))
+    const llOriginal = ordered.map(s => {
+      const lat = Number(s.latitude ?? s.lat)
+      const lng = Number(s.longitude ?? s.lng)
+      return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null
     }).filter(Boolean)
 
-    if (llOriginal.length >= 2) {
-      const line = L.polyline(llOriginal, { color:'#2563eb', weight:6, opacity:.95 }).addTo(routeLayer)
-      mapRef.current.fitBounds(line.getBounds(), { padding:[30,30] })
-    } else if (llOriginal.length === 1) {
-      mapRef.current.setView(llOriginal[0], 15)
+    async function drawFullRoute() {
+      if (llOriginal.length < 2) return
+      await import('leaflet-polylinedecorator')
+
+      let shapeCoords = route.shape // ← 後端 API 帶回來的完整 shape
+
+      if (!shapeCoords || shapeCoords.length === 0) {
+        // fallback：一次丟全部站點給 OSRM
+        const coords = llOriginal.map(p => `${p[1]},${p[0]}`).join(";")
+        const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
+        try {
+          const res = await fetch(url)
+          const data = await res.json()
+          if (data.routes && data.routes[0]?.geometry) {
+            shapeCoords = data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng])
+          }
+        } catch (err) {
+          console.warn("OSRM 失敗，退回直線", err)
+          shapeCoords = llOriginal
+        }
+      }
+
+      if (shapeCoords && shapeCoords.length > 0) {
+        const stroke = L.polyline(shapeCoords, { color:'#2563eb', weight:7, opacity:.98 }).addTo(layerRouteRef.current)
+        if (L.polylineDecorator) {
+          L.polylineDecorator(stroke, {
+            patterns: [{ offset:0, repeat:'48px', symbol: L.Symbol.arrowHead({ pixelSize:11, pathOptions:{ color:'#2563eb', weight:6 } }) }]
+          }).addTo(layerRouteRef.current)
+        }
+        mapRef.current.fitBounds(stroke.getBounds(), { padding:[30,30] })
+      }
     }
 
-    const icon = (label, cls='') => L.divIcon({ className:'', html:`<div class="stop-badge ${cls}">${label}</div>`, iconSize:[24,24], iconAnchor:[12,12] })
+
+    drawFullRoute()
+
+    // 畫站點
+    const icon = (label, cls='') => L.divIcon({
+      className:'',
+      html:`<div class="stop-badge ${cls}">${label}</div>`,
+      iconSize:[24,24], iconAnchor:[12,12]
+    })
     ordered.forEach((s, idx) => {
       const p = llOriginal[idx]; if (!p) return
       const isFirst = idx===0, isLast = idx===ordered.length-1
@@ -357,8 +387,15 @@ function RouteMap({ stops, cars, route }) {
       const cls = isFirst ? 'stop-start' : (isLast ? 'stop-end' : '')
       L.marker(p, { icon: icon(label, cls) }).addTo(stopLayer).bindTooltip(`${s.stopName || s.stop_name || '站點'}`, { direction:'top' })
     })
+  }, [ready, stops])
 
-    // 🔑 改這裡：比對方式和 RouteDetail 一樣
+  // (B) 畫公車，只在 cars 改變時觸發
+  useEffect(() => {
+    if (!ready || !mapRef.current) return
+    const L = window.L
+    const busLayer = layerBusRef.current
+    busLayer.clearLayers()
+
     cars.filter(c =>
       String(c.route) === String(route.id) ||
       String(c.route) === String(route.route_id) ||
@@ -375,9 +412,7 @@ function RouteMap({ stops, cars, route }) {
       L.marker(busPt, { icon: L.divIcon({ className:'', html, iconSize:[1,1] }) }).addTo(busLayer)
       L.circle(busPt, { radius:50, color:'#2563eb', weight:1, fillColor:'#2563eb', fillOpacity:.08 }).addTo(busLayer)
     })
-  }, [ready, stops, cars, route])
+  }, [ready, cars, route])
 
-  return (
-    <div style={{ height:'60vh', borderRadius: 12, overflow:'hidden' }} ref={elRef} />
-  )
+  return <div style={{ height:'60vh', borderRadius:12, overflow:'hidden' }} ref={elRef} />
 }

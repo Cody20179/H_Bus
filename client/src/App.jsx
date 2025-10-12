@@ -9,6 +9,7 @@ import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-
 import NearbyStations from './components/NearbyStations'
 import HomeView from './pages/HomeView'
 import { AnimatePresence, motion } from 'framer-motion'
+import FontSizeSwitcher from './components/FontSizeSwitcher'
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -66,7 +67,8 @@ export default function App() {
   return (
     <div className="page-root">
       <Header />
-      <div className="view">
+      {/* 只在首頁顯示字體調整元件，並放在最下方 */}
+      <div style={{ flex: 1, width: '100%' }}>
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname}>
             <Route
@@ -108,6 +110,34 @@ export default function App() {
                 </motion.div>
               }
             />
+
+            <Route
+              path="/routes/:routeId"
+              element={
+                <motion.div
+                  initial={{ opacity: 0, x: 50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -50 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <RoutesPage />
+                </motion.div>
+              }
+            />
+            <Route
+              path="/routes/:routeId/stop/:stopOrder"
+              element={
+                <motion.div
+                  initial={{ opacity: 0, x: 50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -50 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <RoutesPage />
+                </motion.div>
+              }
+            />
+
             <Route
               path="/profile"
               element={
@@ -124,9 +154,10 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AnimatePresence>
+        {showNearby && <NearbyStations onClose={() => setShowNearby(false)} />}
       </div>
+      {location.pathname === '/' && <FontSizeSwitcher />}
       <BottomNav onNavClick={handleNav} active={activeLabel} />
-      {showNearby && <NearbyStations onClose={() => setShowNearby(false)} />}
     </div>
   )
 }

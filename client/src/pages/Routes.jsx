@@ -13,10 +13,20 @@ export default function RoutesPage() {
 
   useEffect(() => {
     if (routes.length > 0 && routeId) {
-      const found = routes.find(r => String(r.id) === String(routeId))
+      const found = routes.find(r =>
+        String(r.id) === String(routeId) ||
+        String(r.route_id) === String(routeId) ||
+        String(r.key) === String(routeId) ||
+        String(r.name) === String(routeId)   // ← 加這個，因為有時候 API 沒有 id
+      )
       if (found) {
         setSelected(found)
-        if (stopOrder) setHighlightStop(Number(stopOrder))
+        if (stopOrder) {
+          const stopNum = Number(stopOrder)
+          if (!isNaN(stopNum)) {
+            setHighlightStop(stopNum)
+          }
+        }
       }
     }
   }, [routes, routeId, stopOrder])

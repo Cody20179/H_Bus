@@ -1,19 +1,16 @@
-// src/services/api.ts
+﻿// src/services/api.ts
 import axios, { type AxiosResponse } from 'axios'
 
-// 建立 axios 實例，設定基本配置
 const api = axios.create({
-  baseURL: '', // 使用相對路徑，讓 Vite 代理處理
-  timeout: 10000, // 請求超時時間 10 秒
+  baseURL: '',
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
 })
 
-// 請求攔截器 - 可以在這裡加入 token 等認證資訊
 api.interceptors.request.use(
   (config) => {
-    // 自動夾帶管理端 Authorization Token（若存在）
     try {
       const token = localStorage.getItem('token')
       if (token) {
@@ -29,19 +26,16 @@ api.interceptors.request.use(
   }
 )
 
-// 回應攔截器 - 統一處理錯誤
 api.interceptors.response.use(
   (response) => {
     return response
   },
   (error) => {
-    // 統一錯誤處理
     console.error('API Error:', error)
     return Promise.reject(error)
   }
 )
 
-// 定義 API 回應的型別
 export interface MemberStatsResponse {
   success: boolean
   data: {
@@ -172,17 +166,13 @@ export interface RouteStatsResponse {
   error?: string
 }
 
-
-// 儀表板相關 API
 export const dashboardApi = {
-  // 取得會員統計資料
   getMemberStats: async (): Promise<MemberStatsResponse> => {
     try {
       const response = await api.get<MemberStatsResponse>('/api/dashboard/member-stats')
       return response.data
     } catch (error) {
-      console.error('取得會員統計失敗:', error)
-      // 回傳預設值以避免前端錯誤
+      console.error('getMemberStats error:', error)
       return {
         success: false,
         error: '無法取得會員統計資料',
@@ -196,13 +186,12 @@ export const dashboardApi = {
     }
   },
 
-  // 取得管理員統計資料
   getAdminStats: async (): Promise<AdminStatsResponse> => {
     try {
       const response = await api.get<AdminStatsResponse>('/api/dashboard/admin-stats')
       return response.data
     } catch (error) {
-      console.error('取得管理員統計失敗:', error)
+      console.error('getAdminStats error:', error)
       return {
         success: false,
         error: '無法取得管理員統計資料',
@@ -216,36 +205,34 @@ export const dashboardApi = {
     }
   },
 
-  // 取得資料庫狀況統計
   getDatabaseStats: async (): Promise<DatabaseStatsResponse> => {
     try {
       const response = await api.get<DatabaseStatsResponse>('/api/dashboard/database-stats')
       return response.data
     } catch (error) {
-      console.error('取得資料庫統計失敗:', error)
+      console.error('getDatabaseStats error:', error)
       return {
         success: false,
         error: '無法取得資料庫統計資料',
         data: {
-          status: '異常',
+          status: '未知',
           connection_time: 9999,
           total_tables: 0,
-          health: '異常'
+          health: '未知'
         }
       }
     }
   },
 
-  // 取得預約統計
   getReservationStats: async (): Promise<ReservationStatsResponse> => {
     try {
       const response = await api.get<ReservationStatsResponse>('/api/dashboard/reservation-stats')
       return response.data
     } catch (error) {
-      console.error('取得預約統計失敗:', error)
+      console.error('getReservationStats error:', error)
       return {
         success: false,
-        error: '無法取得預約統計',
+        error: '無法取得預約統計資料',
         data: {
           this_month: 0,
           today_new: 0,
@@ -258,7 +245,6 @@ export const dashboardApi = {
     }
   },
 
-  // 取得預約趨勢（單月／週統計）
   getReservationTrendMonthly: async (year: number, month: number): Promise<ReservationTrendResponse> => {
     try {
       const response = await api.get<ReservationTrendResponse>('/api/dashboard/reservations/trend', {
@@ -266,10 +252,10 @@ export const dashboardApi = {
       })
       return response.data
     } catch (error) {
-      console.error('取得預約趨勢（單月）失敗:', error)
+      console.error('getReservationTrendMonthly error:', error)
       return {
         success: false,
-        error: '無法取得預約趨勢資料',
+        error: '無法取得預約趨勢(月)',
         data: {
           mode: 'monthly',
           year,
@@ -281,7 +267,6 @@ export const dashboardApi = {
     }
   },
 
-  // 取得預約趨勢（月份區間／月統計）
   getReservationTrendRange: async (startMonth: string, endMonth: string): Promise<ReservationTrendResponse> => {
     try {
       const response = await api.get<ReservationTrendResponse>('/api/dashboard/reservations/trend', {
@@ -289,10 +274,10 @@ export const dashboardApi = {
       })
       return response.data
     } catch (error) {
-      console.error('取得預約趨勢（區間）失敗:', error)
+      console.error('getReservationTrendRange error:', error)
       return {
         success: false,
-        error: '無法取得預約趨勢資料',
+        error: '無法取得預約趨勢(區間)',
         data: {
           mode: 'range',
           start_month: startMonth,
@@ -304,7 +289,6 @@ export const dashboardApi = {
     }
   },
 
-  // 取得預約狀態分布（單月／週統計）
   getReservationStatusMonthly: async (year: number, month: number): Promise<ReservationStatusResponse> => {
     try {
       const response = await api.get<ReservationStatusResponse>('/api/dashboard/reservations/status', {
@@ -312,10 +296,10 @@ export const dashboardApi = {
       })
       return response.data
     } catch (error) {
-      console.error('取得預約狀態分布（單月）失敗:', error)
+      console.error('getReservationStatusMonthly error:', error)
       return {
         success: false,
-        error: '無法取得預約狀態分布資料',
+        error: '無法取得預約狀態(月)',
         data: {
           mode: 'monthly',
           year,
@@ -329,7 +313,6 @@ export const dashboardApi = {
     }
   },
 
-  // 取得預約狀態分布（月份區間）
   getReservationStatusRange: async (startMonth: string, endMonth: string): Promise<ReservationStatusResponse> => {
     try {
       const response = await api.get<ReservationStatusResponse>('/api/dashboard/reservations/status', {
@@ -337,10 +320,10 @@ export const dashboardApi = {
       })
       return response.data
     } catch (error) {
-      console.error('取得預約狀態分布（區間）失敗:', error)
+      console.error('getReservationStatusRange error:', error)
       return {
         success: false,
-        error: '無法取得預約狀態分布資料',
+        error: '無法取得預約狀態(區間)',
         data: {
           mode: 'range',
           start_month: startMonth,
@@ -354,23 +337,21 @@ export const dashboardApi = {
     }
   },
 
-  // 取得路線統計
   getRouteStats: async (): Promise<RouteStatsResponse> => {
     try {
       const response = await api.get<RouteStatsResponse>('/api/dashboard/route-stats')
       return response.data
     } catch (error) {
-      console.error('取得路線統計失敗:', error)
+      console.error('getRouteStats error:', error)
       return {
         success: false,
-        error: '無法取得路線統計',
+        error: '無法取得路線統計資料',
         data: { total: 0, active: 0, inactive: 0, on_time_rate: 0 }
       }
     }
   }
 }
 
-// 會員管理 API 型別
 export interface Member {
   user_id: number
   username: string | null
@@ -394,7 +375,6 @@ export interface MemberListResponse {
   total_pages: number
 }
 
-// 建立/更新會員可帶的欄位（密碼為選填；留空不變更）
 export interface MemberPayload {
   username?: string
   line_id?: string | null
@@ -403,45 +383,38 @@ export interface MemberPayload {
   status?: 'active' | 'inactive'
   preferences?: string | null
   privacy_settings?: string | null
-  password?: string // 新增：可選密碼
+  password?: string
 }
 
 export type MemberUpdatePayload = MemberPayload
 
-// 會員管理 API
 export const memberApi = {
-  // 取得會員列表
   getMembers: async (queryString: string = ''): Promise<AxiosResponse<MemberListResponse>> => {
     const response = await api.get<MemberListResponse>(`/api/members${queryString ? '?' + queryString : ''}`)
     return response
   },
 
-  // 新增會員
   createMember: async (memberData: MemberPayload): Promise<AxiosResponse<any>> => {
     const response = await api.post('/Create_users', memberData)
     return response
   },
 
-  // 更新會員
   updateMember: async (memberId: number, memberData: MemberUpdatePayload): Promise<AxiosResponse<any>> => {
     const response = await api.put(`/users/${memberId}`, memberData)
     return response
   },
 
-  // 刪除會員
   deleteMember: async (memberId: number) => {
     const response = await api.delete(`/users/${memberId}`)
     return response
   },
 
-  // 取得單一會員資料
   getMember: async (memberId: number): Promise<AxiosResponse<Member>> => {
     const response = await api.get<Member>(`/users/${memberId}`)
     return response
   }
 }
 
-// 車輛資源 API 型別
 export interface CarResource {
   car_id: number
   car_licence: string
@@ -472,7 +445,6 @@ export interface CarResourcePayload {
 
 export type CarResourceUpdatePayload = Partial<CarResourcePayload>
 
-// 車輛統計回應
 export interface CarStatsResponse {
   success: boolean
   data: {
@@ -486,6 +458,7 @@ export interface CarStatsResponse {
     }
   }
 }
+
 export const carApi = {
   getCars: async (queryString: string = ''): Promise<AxiosResponse<CarListResponse>> => {
     const response = await api.get<CarListResponse>(`/api/cars${queryString ? '?' + queryString : ''}`)
@@ -509,4 +482,73 @@ export const carApi = {
   }
 }
 
+export interface GenerateQrCodesPayload {
+  base_url: string
+  route_id: number
+  stop_count: number
+  output_prefix?: string
+}
+
+export const toolsApi = {
+  generateQrCodes: async (payload: GenerateQrCodesPayload): Promise<Blob> => {
+    const response = await api.post('/api/tools/qr-codes', payload, { responseType: 'blob' })
+    return response.data
+  }
+}
+
 export default api
+
+export interface EmailReminderConfig {
+  enabled: boolean
+  hour: number
+  minute: number
+  timezone: string
+  next_run_at?: string | null
+  last_run_at?: string | null
+  last_run_status?: string | null
+  last_error?: string | null
+  last_run_summary?: EmailReminderRunSummary | null
+}
+
+export interface EmailReminderRunSummary {
+  run_id: number
+  status: string
+  started_at?: string | null
+  finished_at?: string | null
+  total_emails: number
+  success_emails: number
+  failed_emails: number
+  message?: string | null
+  error_message?: string | null
+}
+
+export interface EmailReminderRunResult {
+  status: string
+  run_id?: number
+  total_emails?: number
+  success_emails?: number
+  failed_emails?: number
+  message?: string | null
+  error?: string | null
+}
+
+export interface EmailReminderRunResponse {
+  status: string
+  result: EmailReminderRunResult
+  config: EmailReminderConfig
+}
+
+export const emailReminderApi = {
+  getConfig: async (): Promise<EmailReminderConfig> => {
+    const { data } = await api.get<EmailReminderConfig>('/api/reservation-reminder/config')
+    return data
+  },
+  updateConfig: async (payload: { enabled: boolean; hour: number; minute: number; timezone: string }): Promise<EmailReminderConfig> => {
+    const { data } = await api.put<EmailReminderConfig>('/api/reservation-reminder/config', payload)
+    return data
+  },
+  runNow: async (): Promise<EmailReminderRunResponse> => {
+    const { data } = await api.post<EmailReminderRunResponse>('/api/reservation-reminder/run')
+    return data
+  }
+}

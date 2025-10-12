@@ -15,6 +15,8 @@
           <li @click="goTo('reservation')">預約管理</li>
           <li @click="goTo('car')">車輛管理</li>
           <li @click="goTo('route')">路線管理</li>
+          <li @click="goTo('email-reminder')">Email Reminder</li>
+          <li @click="goTo('qr-generator')">QR Codes</li>
         </ul>
       </nav>
     </aside>
@@ -1846,6 +1848,12 @@ function goTo(page: string) {
       break
     case 'route':
       router.push('/home/route-management')
+      break
+    case 'email-reminder':
+      router.push('/home/email-reminder')
+      break
+    case 'qr-generator':
+      router.push('/home/qr-generator')
       break
     default:
       console.warn('未知的頁面:', page)

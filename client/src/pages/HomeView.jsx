@@ -58,7 +58,6 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
     return () => clearInterval(id)
   }, [searchOpen])
 
-  // --- 抓即時到站 ---
   useEffect(() => {
     let cancelled = false
     const refresh = async ({ hard = false } = {}) => {
@@ -199,10 +198,9 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
         </div>
       </section>
 
-      {/* 🚌 即時到站 */}
       <section className="card">
         <div className="card-title">
-          <span>即時到站</span>
+          <span>即將到站</span>
           <button
             className="link-btn"
             onClick={() => { setRefreshing(true); setTick((t) => t + 1) }}

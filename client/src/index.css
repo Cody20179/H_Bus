@@ -1,18 +1,92 @@
-:root{
-  --pantone-blue: #0033A0;   /* Pantone 286C approx */
-  --pantone-orange: #FF6900; /* Bright Orange approx */
+/* 全域字體大小與比例設定 */
+:root {
+  --pantone-blue: #0033A0;
+  --pantone-orange: #FF6900;
   --bg: #f4f7fb;
   --card-bg: #ffffff;
   --muted: #6f808f;
-  --radius: 12px;
-  --container-w: 420px;
-  --shadow: 0 6px 18px rgba(10,20,40,0.07);
+  --radius: 0.75rem;
+  --container-w: 26.25rem;
+  --shadow: 0 0.375rem 1.125rem rgba(10,20,40,0.07);
   --text: #0f1724;
+  --base-font-size: 5vw; /* 以視窗寬度為基準，響應式字體 */
+  --font-size-xs: calc(var(--base-font-size) * 0.75);
+  --font-size-sm: calc(var(--base-font-size) * 0.9);
+  --font-size-md: var(--base-font-size);
+  --font-size-lg: calc(var(--base-font-size) * 1.25);
+  --font-size-xl: calc(var(--base-font-size) * 1.5);
+}
+
+body, html, #root, .page-root, .container {
+  font-size: var(--font-size-md);
+  font-family: "Noto Sans TC", "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.card, .card-title, .card-body, .btn, .search-input, .app-title, .subtitle, .route-name, .arrival-item, .font-size-label, .font-size-select, .route-title, .route-desc, .route-btn, .route-list, .route-list *, .arrival-list, .arrival-list *, .reservation-row, .res-time, .res-main, .res-route, .res-meta, .res-count, .res-count-num, .res-count-label, .announcement, .announce-item, .link-btn, .bottom-nav, .nav-item, .nav-item.active, .route-card, .route-card *, .route-sub, .profile-section, .profile-section *, .item, .item-col, .item-desc, .badge, .auth-title, .auth-subtitle, .modal-title, .modal-body, .help-title, .help-sub, .meta-label, .meta-value, .status-chip, .btn-pay-manage, .stop-name, .stop-badge, .phone-pill, .chip, .chip.active {
+  font-size: var(--font-size-md) !important;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  word-break: break-word;
+}
+
+.card-body, .card-body * {
+  font-size: var(--font-size-md) !important;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  word-break: break-word;
+}
+
+.search-field, .search-field *, input[type="date"], select, option {
+  font-size: var(--font-size-md) !important;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+}
+
+.card-title span, .app-title, .route-title, .modal-title, .auth-title {
+  font-size: var(--font-size-lg) !important;
+  font-weight: bold;
+}
+
+.small, .res-count-label, .meta-label, .status-chip, .subtitle, .res-time-sub, .arrival-stop, .route-sub, .item-desc {
+  font-size: var(--font-size-xs) !important;
+}
+
+.btn, .route-btn, .btn-pay-manage, .link-btn {
+  font-size: var(--font-size-sm) !important;
+  padding: 0.7em 1.1em;
+  border-radius: 0.6em;
+}
+
+.nav-item {
+  font-size: var(--font-size-md) !important;
+}
+
+@media (min-width: 420px) {
+  :root {
+    --base-font-size: 18px;
+  }
+}
+@media (min-width: 640px) {
+  :root {
+    --base-font-size: 20px;
+  }
+}
+@media (min-width: 1024px) {
+  :root {
+    --base-font-size: 22px;
+  }
+}
+@media (min-width: 1280px) {
+  :root {
+    --base-font-size: 24px;
+  }
 }
 
 /* Reset */
 *{box-sizing:border-box}
-html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Roboto, Arial, sans-serif;background:var(--bg);color:var(--text)}
+html,body,#root{height:100%;margin:0;}
 .page-root{min-height:100vh;display:flex;flex-direction:column;align-items:center}
 
 /* Header */
@@ -42,8 +116,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 }
 .logo-emoji{ display:flex; align-items:center; justify-content:center; width:100%; height:100%; font-size:20px; text-shadow:0 2px 6px rgba(0,0,0,.2) }
 .title-block{color:#fff}
-.app-title{font-weight:700;font-size:16px}
-.subtitle{font-size:12px;opacity:0.92}
 
 /* Container */
 .container{
@@ -68,7 +140,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   border-radius:10px;
   padding:14px;
   color:var(--muted);
-  font-size:14px;
   box-shadow: var(--shadow);
   margin-bottom:10px;
   border:1px solid rgba(0,51,160,0.04);
@@ -76,8 +147,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .search-actions{display:flex;gap:10px}
 .btn{
   flex:1;
-  padding:12px 14px;
-  border-radius:10px;
   border:none;
   font-weight:600;
   cursor:pointer;
@@ -102,17 +171,13 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   margin-bottom:12px;
   box-shadow: var(--shadow);
   border:1px solid rgba(10,20,40,0.04);
+  min-width: 0;
+  overflow: hidden;
 }
-.card-title{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  font-weight:700;
-  margin-bottom:10px;
-}
+
 .card-body{padding:6px 4px;color:var(--text)}
+
 .muted{color:var(--muted);font-weight:500}
-.small{font-size:13px;color:var(--muted)}
 .center-vertical{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;height:88px}
 .mt-12{margin-top:12px}
 .btn-block{width:100%}
@@ -128,7 +193,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   color:var(--pantone-blue);
   font-weight:700;
   cursor:pointer;
-  font-size:13px;
 }
 
 /* Bottom navigation */
@@ -163,13 +227,15 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   box-shadow: 0 6px 14px rgba(0,51,160,0.12);
 }
 
-/* 將下面 CSS 加到 src/index.css（或現有 CSS 結尾） */
 /* 即時到站列表樣式 */
 .arrival-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding-top: 6px;
+  width: 100%;
+  max-width: var(--container-w);
+  margin: 0 auto;
 }
 .arrival-item {
   display: flex;
@@ -181,6 +247,8 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   border: 1px solid rgba(0,51,160,0.06);
   cursor: pointer;
   transition: transform .08s ease, box-shadow .12s ease, background-color .12s ease;
+  min-width: 0;
+  overflow: hidden;
 }
 .arrival-item--tight { min-height: 64px; }
 .arrival-item.is-pressed {
@@ -197,12 +265,10 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .arrival-left--nowrap { flex:1; min-width:0; }
 .route-line { display:flex; align-items:center; gap:8px; }
 .arrival-item .route-line{ flex-wrap:wrap; }
-.arrival-item .route-name{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word; }
 .arrival-item .direction{ flex:0 0 auto; }
-.route-name { font-weight:700; font-size:14px; color:var(--text); }
+.route-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: block; }
 .ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.direction { font-weight:600; font-size:13px; margin-left:6px; color:var(--pantone-orange); }
-.arrival-stop { font-size:13px; color:var(--muted); }
+.direction { font-weight:600; margin-left:6px; color:var(--pantone-orange); }
 .arrival-right { display:flex; align-items:center; }
 .eta {
   background: rgba(255,105,0,0.12);
@@ -210,14 +276,18 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   font-weight:700;
   padding:6px 10px;
   border-radius:18px;
-  font-size:13px;
   min-width:56px;
   text-align:center;
 }
 .eta--right { margin-left: 12px; }
 
 /* Search suggestions */
-.search-field { width:100%; padding:10px 12px; border-radius:8px; border:1px solid rgba(0,0,0,0.08); outline:none; }
+.search-field { 
+  width:100%; 
+  padding:10px 12px; 
+  border-radius:8px; 
+  border:1px solid rgba(0,0,0,0.08); 
+  outline:none; }
 .search-suggestions { margin-top:8px; background:#fff; border:1px solid rgba(0,0,0,0.06); border-radius:8px; max-height:220px; overflow:auto; }
 .suggest-item { display:flex; justify-content:space-between; padding:10px 12px; border-bottom:1px solid rgba(0,0,0,0.04); cursor:pointer; }
 .suggest-item:last-child { border-bottom:none; }
@@ -226,10 +296,29 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 /* Routes / detail */
 .routes-page { max-width:var(--container-w); margin:16px auto; padding:0 16px 80px; }
 .page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-.routes-list { display:flex; flex-direction:column; gap:10px; }
+.routes-list { display:flex; flex-direction:column; gap:10px; width: 100%; max-width: var(--container-w); margin: 0 auto; }
 .route-card { display:flex; justify-content:space-between; padding:12px; border-radius:10px; background: #fff; border:1px solid rgba(0,0,0,0.04); box-shadow: 0 6px 12px rgba(10,20,40,0.04); cursor:pointer; }
-.route-title { font-weight:700; }
-.route-sub { font-size:13px; color:var(--muted); }
+.route-title { font-weight:700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: block; }
+.route-sub { color:var(--muted); }
+
+.routes-list, .route-card, .route-title, .route-card .route-title, .route-card .route-sub, .route-card .route-btn, .routes-list * {
+  min-width: 0;
+}
+.route-title, .route-card .route-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
+}
+.route-card {
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+.route-card .route-title {
+  flex: 1 1 0%;
+  min-width: 0;
+}
 
 /* overlay detail */
 .route-detail-overlay {
@@ -253,7 +342,7 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .stops-list { display:flex; flex-direction:column; gap:8px; max-height:60vh; overflow:auto; padding-right:6px; }
 .stop-item { display:flex; justify-content:space-between; align-items:center; padding:10px; border-radius:8px; background: #fbfdff; border:1px solid rgba(0,0,0,0.03); }
 .stop-name { font-weight:600; }
-.coord { text-align:right; font-size:12px; color:var(--muted); }
+.coord { text-align:right; }
 
 /* Responsive for small screens */
 @media (max-width:420px){
@@ -274,7 +363,7 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .bus-pulse{position:absolute;left:50%;top:50%;width:66px;height:66px;border-radius:50%;transform:translate(-50%,-50%);background:rgba(37,99,235,.15);box-shadow:0 0 0 4px rgba(37,99,235,.12);animation:pulse 1.6s ease-out infinite}
 .bus-dot{position:absolute;left:50%;top:50%;width:18px;height:18px;border-radius:50%;transform:translate(-50%,-50%);background:#2563eb;border:2px solid #fff;box-shadow:0 4px 14px rgba(0,0,0,.35)}
 .bus-emoji{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:20px;text-shadow:0 2px 8px rgba(0,0,0,.35)}
-.bus-badge{position:absolute;left:50%;top:-8px;transform:translate(-50%,-100%);background:#111827;color:#fff;border-radius:999px;padding:3px 8px;font-weight:800;font-size:12px;box-shadow:0 6px 16px rgba(0,0,0,.35)}
+.bus-badge{position:absolute;left:50%;top:-8px;transform:translate(-50%,-100%);background:#111827;color:#fff;border-radius:999px;padding:3px 8px;font-weight:800;box-shadow:0 6px 16px rgba(0,0,0,.35)}
 .bus-acc{position:absolute;left:50%;top:50%;width:110px;height:110px;border-radius:50%;transform:translate(-50%,-50%);border:2px dashed rgba(37,99,235,.35)}
 @keyframes pulse{0%{transform:translate(-50%,-50%) scale(.6);opacity:.9}70%{opacity:.25}100%{transform:translate(-50%,-50%) scale(1.15);opacity:0}}
 
@@ -283,7 +372,7 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   background:#fff;color:#111;border:2px solid #2563eb;
   font-weight:800;min-width:22px;height:22px;border-radius:14px;line-height:18px;
   display:inline-flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.15);
-  padding:0 4px; font-size:12px;
+  padding:0 4px;
 }
 .stop-start{color:#2563eb;border-color:#2563eb}
 .stop-end{color:#d97706;border-color:#d97706}
@@ -296,28 +385,11 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .auth-card{ width:100%; background:#fff; border-radius:16px; padding:26px 22px; box-shadow: var(--shadow); border:1px solid rgba(0,0,0,.06); }
 .auth-container .auth-card{ border-radius:0; box-shadow:none; border:none; padding:16px; }
 .auth-full{ border-radius:0; box-shadow:none; border:none; padding:16px; }
-.auth-title{ text-align:center; margin:4px 0 16px; font-size:20px; font-weight:800; color: var(--text); }
-.auth-form{ display:flex; flex-direction:column; gap:12px; }
-.auth-input{
-  width:100%; padding:14px 14px; border-radius:12px; outline:none;
-  border:1px solid rgba(0,0,0,.08); background:#fbfdff; color:#111; box-shadow: var(--shadow);
-}
-.auth-button{
-  width:100%; padding:14px 16px; border-radius:999px; border:none; font-weight:800; color:#fff; cursor:pointer;
-  background: linear-gradient(90deg, var(--pantone-orange), #ff7d1f);
-  box-shadow: 0 8px 18px rgba(255,105,0,.25);
-}
-.auth-button:disabled{ opacity:.7; cursor:not-allowed }
 .auth-divider{ text-align:center; margin:16px 0 10px; color:var(--muted); font-weight:600; }
 .auth-social{ display:flex; justify-content:center; gap:14px; margin-bottom:12px; }
 .auth-social-btn{ width:42px; height:42px; border-radius:50%; border:none; background:#fff; box-shadow: var(--shadow); font-weight:800; cursor:pointer }
 .auth-link{ display:block; width:100%; text-align:center; background:transparent; border:none; color:var(--pantone-blue); font-weight:700; cursor:pointer; padding:6px 0; }
-.auth-error{ color:#c43; background:#ffeef0; border:1px solid rgba(196,67,67,.25); padding:8px 10px; border-radius:8px; font-size:13px; }
-.auth-tabs{ display:flex; gap:8px; background:#f6f8fc; padding:6px; border-radius:999px; width:fit-content; }
-.auth-tab{ padding:8px 14px; border-radius:999px; border:none; background:transparent; font-weight:800; color:var(--muted); cursor:pointer }
-.auth-tab.active{ background:#fff; color:var(--text); box-shadow: var(--shadow); }
-.auth-row{ display:flex; align-items:center; justify-content:space-between; margin:6px 0; }
-.auth-remember{ color:var(--muted); font-size:13px; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.auth-error{ color:#c43; background:#ffeef0; border:1px solid rgba(196,67,67,.25); padding:8px 10px; border-radius:8px; }
 
 /* Profile dashboard */
 .profile-section .section-title{ font-weight:800; margin-bottom:8px; }
@@ -325,9 +397,7 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .item{ display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border:1px solid rgba(0,0,0,.06); border-radius:10px; background:#fff; }
 .item.selected{ border-color:#2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.14); }
 .item-col{ display:flex; align-items:center; gap:10px; }
-.item-desc{ font-size:12px; color:var(--muted); }
 .avatar{ width:48px; height:48px; border-radius:50%; background:linear-gradient(180deg,#eef3ff,#e8f1ff); display:flex; align-items:center; justify-content:center; font-weight:800; color:#274; border:1px solid rgba(0,0,0,.06); }
-.badge{ font-size:12px; padding:3px 8px; border-radius:999px; background:#eef3ff; color:#0033A0; font-weight:700; }
 .switch{ appearance:none; width:42px; height:24px; border-radius:999px; position:relative; background:#e5e7eb; outline:none; cursor:pointer; transition:background .15s ease; }
 .switch:checked{ background:#2563eb; }
 .switch::after{ content:""; position:absolute; left:3px; top:3px; width:18px; height:18px; background:#fff; border-radius:50%; transition: left .15s ease; box-shadow:0 1px 3px rgba(0,0,0,.2); }
@@ -340,14 +410,14 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .container.auth-container{ max-width:100% !important; width:100%; margin:0; padding:0; }
 .container.auth-container .card{ border-radius:0; box-shadow:none; border:none; }
 .auth-container .auth-card{ border-radius:0; box-shadow:none; border:none; padding:20px; }
-.auth-title{ font-size:24px; margin:8px 0 18px; }
+.auth-title{ margin:8px 0 18px; }
 .auth-form{ gap:14px; }
-.auth-input{ font-size:16px; min-height:48px; padding:16px 16px; }
-.auth-button{ font-size:16px; min-height:52px; padding:16px 18px; }
+.auth-input{ min-height:48px; padding:16px 16px; }
+.auth-button{ min-height:52px; padding:16px 18px; }
 .auth-tabs{ gap:10px; padding:8px; }
-.auth-tab{ font-size:16px; padding:10px 16px; }
+.auth-tab{ padding:10px 16px; }
 .auth-row{ margin:10px 0; }
-.auth-remember{ font-size:14px; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.auth-remember{ display:flex; align-items:center; gap:6px; white-space:nowrap; }
 
 /* Verify modal */
 .modal-overlay{ position:fixed; inset:0; z-index:220; display:flex; align-items:center; justify-content:center; background: rgba(0,0,0,.35); }
@@ -371,14 +441,14 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   box-shadow: inset 0 0 0 12px #fff, var(--shadow);
 }
 .goal-ring .ring-text{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-.ring-num{ font-weight:800; font-size:22px; }
+.ring-num{ font-weight:800; }
 .ring-sub{ margin-top:2px; }
 .ring-goal{ margin-top:2px; }
 
 .overview-meta{ flex:1; min-width:0; display:flex; flex-direction:column; gap:8px; }
 .overview-meta .meta-title{ font-weight:800; }
 .overview-meta .meta-list{ display:flex; flex-wrap:wrap; gap:10px 16px; color:var(--muted); }
-.btn-compact{ padding:10px 12px; align-self:flex-start; }
+.btn-compact{ align-self:flex-start; }
 
 .kpi-grid{
   display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; 
@@ -392,7 +462,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .kpi-item:active{ transform: translateY(1px); }
 .kpi-head{ display:flex; align-items:center; gap:8px; color:var(--muted); font-weight:700; }
 .kpi-icon{ font-size:18px; }
-.kpi-value{ font-size:22px; font-weight:800; }
 .kpi-green{ background: linear-gradient(180deg, #f4fbf7, #f8fffb); }
 .kpi-orange{ background: linear-gradient(180deg, #fff7f1, #fffaf6); }
 .kpi-actions{ display:flex; gap:8px; margin-top:12px; }
@@ -401,17 +470,13 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 @media (max-width:420px){
   .overview-hero{ padding:12px; gap:12px; }
   .goal-ring{ width:100px; height:100px; }
-  .kpi-value{ font-size:20px; }
 }
 
 .btn-pay-manage {
-  width: 100px;
-  height: 36px;
   background: #0033A0;
   color: #fff;
   border-radius: 6px;
   font-weight: bold;
-  font-size: 16px;
   border: none;
   cursor: pointer;
 }
@@ -423,10 +488,8 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .resv-list { display:flex; flex-direction:column; gap:12px; }
 .resv-card { display:flex; align-items:stretch; justify-content:space-between; gap:12px; padding:14px 16px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow: 0 1px 0 rgba(15,23,42,0.02); }
 .resv-main { flex:1 1 auto; min-width:0; }
-.resv-title { font-weight:800; font-size:16px; color:#0f172a; letter-spacing:.2px; }
-.resv-sub { margin-top:4px; color:#475569; font-size:14px; }
 .resv-status { margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; }
-.status-chip { font-size:12px; padding:3px 8px; border-radius:999px; border:1px solid transparent; line-height:1.25; }
+.status-chip { padding:3px 8px; border-radius:999px; border:1px solid transparent; line-height:1.25; }
 .status-chip.pending { background:#fff7ed; color:#9a3412; border-color:#fed7aa; }
 .status-chip.approved { background:#ecfdf5; color:#065f46; border-color:#a7f3d0; }
 .status-chip.rejected { background:#fef2f2; color:#991b1b; border-color:#fecaca; }
@@ -451,19 +514,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   width: 320px;
 }
 
-.auth-title {
-  font-size: 22px;
-  font-weight: bold;
-  margin-bottom: 8px;
-  color: #222;
-}
-
-.auth-subtitle {
-  font-size: 14px;
-  color: #666;
-  margin-bottom: 20px;
-}
-
 .line-login-button {
   display: flex;
   align-items: center;
@@ -472,7 +522,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   color: white;
   border: none;
   border-radius: 8px;
-  font-size: 16px;
   font-weight: bold;
   padding: 12px 18px;
   cursor: pointer;
@@ -499,15 +548,9 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   margin-bottom: 14px;
 }
 
-.modal-title {
-  font-size: 18px;
-  font-weight: 800;
-}
-
 .modal-close {
   background: transparent;
   border: none;
-  font-size: 20px;
   font-weight: bold;
   cursor: pointer;
   color: var(--muted);
@@ -515,8 +558,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 
 .modal-body p {
   margin: 6px 0;
-  font-size: 14px;
-  color: var(--text);
   line-height: 1.5;
 }
 
@@ -537,16 +578,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   padding: 6px 8px;
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(11,118,255,0.06), rgba(11,118,255,0.02));
-}
-.res-time-main {
-  font-weight: 700;
-  font-size: 16px;
-  color: var(--primary, #0b76ff);
-}
-.res-time-sub {
-  font-size: 12px;
-  color: #777;
-  margin-top: 2px;
 }
 
 .res-main {
@@ -571,8 +602,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   background: #f5f8ff;
   border: 1px solid #e6eefc;
 }
-.res-count-num { font-weight: 700; font-size: 16px; }
-.res-count-label { font-size: 12px; color: #666; margin-top: 2px; }
 
 /* 小裝飾：卡片底部不需要線 */
 .card-body > .reservation-row:last-child { border-bottom: none; }
@@ -581,7 +610,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 @media (max-width: 420px) {
   .res-time { min-width: 64px; padding: 4px 6px; }
   .res-count { min-width: 56px; padding: 4px 6px; }
-  .res-time-main, .res-count-num { font-size: 14px; }
 }
 
 /* ===== Help card 美化 ===== */
@@ -607,7 +635,7 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 /* 左側：標題與小字 */
 .help-left { min-width: 0; }
 .help-title { font-weight: 700; color: #0f1724; margin-bottom: 4px; }
-.help-sub { font-size: 13px; color: #7b858f; }
+.help-sub { }
 
 /* 右側：撥號 pill + 按鈕群 */
 .help-right { display:flex; align-items:center; gap:8px; }
@@ -630,7 +658,7 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .phone-pill:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(11,118,255,0.06); }
 
 /* 電話字樣 */
-.phone-number { font-size: 15px; letter-spacing: .2px; }
+.phone-number { letter-spacing: .2px; }
 
 /* 複製按鈕樣式（small icon） */
 .btn-icon.btn-copy {
@@ -647,12 +675,12 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 .btn-icon svg { color: #475569; }
 
 /* 主要按鈕（隱私） */
-.btn { font-weight:700; padding:8px 14px; border-radius:8px; cursor:pointer; border: none; }
+.btn { font-weight:700; cursor:pointer; border: none; }
 .btn-primary { background: #0537d8; color: #fff; box-shadow: 0 6px 18px rgba(5,55,216,0.12); }
 .btn-outline { border: 1px solid #dbe6ff; background: transparent; color: #0537d8; }
 
 /* 權益列表樣式 */
-.rights-list { margin:8px 0 0 0; padding-left: 18px; color: #334155; font-size:13px; }
+.rights-list { margin:8px 0 0 0; padding-left: 18px; color: #334155; }
 .rights-list li { margin-bottom:6px; line-height:1.3; }
 
 /* Mobile: 把右側按鈕換行顯示，避免擠壞 */
@@ -680,8 +708,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
 
 /* 小標 / 標籤 */
 .meta-label {
-  font-size: 13px;
-  color: var(--muted, #7b858f);
   font-weight: 600;
   margin-bottom: 4px;
 }
@@ -692,7 +718,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   align-items: center;
   gap: 8px;
   max-width: 320px;        /* 視情況可調，控制欄位寬度 */
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 700;
@@ -704,7 +729,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   display: inline-block;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
   max-width: 220px; /* 電子郵件或電話的實際可顯示寬度 */
 }
 
@@ -716,7 +740,6 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   font-weight: 600;
   cursor: pointer;
   padding: 2px 6px;
-  font-size: 13px;
 }
 .link-btn:hover { text-decoration: underline; }
 
@@ -733,7 +756,19 @@ html,body,#root{height:100%;margin:0;font-family:"Noto Sans TC", "Segoe UI", Rob
   }
   .meta-value { 
     max-width: 100%;
-    white-space: normal;
   }
   .meta-value .ellipsis { max-width: 100%; }
+}
+
+.reserve-form, .reserve-form *, .my-reservations, .my-reservations *, .profile-section, .profile-section * {
+  font-size: var(--base-font-size) !important;
+}
+.btn, .route-card .route-btn, .my-reservations .btn {
+  font-size: calc(var(--base-font-size) * 0.95) !important;
+  padding: 10px 12px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

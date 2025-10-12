@@ -1,0 +1,31 @@
+.font-size-switcher {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  max-width: var(--container-w);
+  margin: 0 auto 12px auto;
+  padding: 0 16px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  height: 44px;
+}
+.font-size-label {
+  font-weight: 600;
+  color: var(--pantone-blue);
+  margin-right: 8px;
+  font-size: 1em;
+}
+.font-size-select {
+  font-size: 1em;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid #e0e6ef;
+  background: #f4f7fb;
+  color: var(--pantone-blue);
+  outline: none;
+  transition: border 0.2s;
+}
+.font-size-select:focus {
+  border: 1.5px solid var(--pantone-blue);
+}
