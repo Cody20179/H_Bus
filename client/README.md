@@ -29,7 +29,7 @@ uvicorn Server:app \
   --ssl-certfile "/home/jovyan/ssl/hualenbus.labelnine.app-chain.pem"
 
 開發者需自行準備 
-# .env
+# .env (都在client下)
 - Route (https)
 FRONTEND_DEFAULT_URL = https://hualenbus.labelnine.app:7001 (Example)
 
@@ -90,4 +90,5 @@ npm run build
 映像僅含 Python/Node.js 依賴與程式碼。
 不含任何 .env、SSL、Redis、MariaDB。
 Port 可自行指定，例如：
+
 docker run -it -p 8080:7001 hbus_env:latest
