@@ -63,7 +63,7 @@ STORE_CODE    = os.getenv("STORE_CODE", "")
 KEY_HEX       = os.getenv("KEY", "")
 IV_HEX        = os.getenv("IV", "")
 LAYMON        = os.getenv("LAYMON", "iqrc.epay365.com.tw")  # 雷門 host，不要加 https://
-PUBLIC_BASE   = os.getenv("FRONTEND_DEFAULT_URL", "").rstrip("/")  # 例: https://hualenbus.labelnine.app:8600
+PUBLIC_BASE   = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")  # 例: https://hualenbus.labelnine.app:8600
 
 if not all([MERCHANT_ID, TERMINAL_ID, STORE_CODE, KEY_HEX, IV_HEX, PUBLIC_BASE]):
     raise RuntimeError("環境變數缺失：請確認 MERCHANT_ID / TERMINAL_ID / STORE_CODE / KEY / IV / PUBLIC_BASE_URL")
