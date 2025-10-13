@@ -44,10 +44,21 @@ function drawRouteWithArrows(L, layer, geojson) {
 }
 
 // 工具：產生五分鐘間隔時間
-function generateTimeOptions() {
+function generateTimeOptions(selectedDateStr) {
   const options = []
-  for (let h = 0; h < 24; h++) {
+  if (!selectedDateStr) return options
+
+  const d = new Date(selectedDateStr)
+  const day = d.getDay() // 0=週日, 6=週六
+  const isWeekend = (day === 0 || day === 6)
+
+  const startHour = isWeekend ? 10 : 9
+  const endHour = isWeekend ? 15 : 16
+  const endMinute = isWeekend ? 30 : 30
+
+  for (let h = startHour; h <= endHour; h++) {
     for (let m = 0; m < 60; m += 5) {
+      if (h === endHour && m > endMinute) break
       const hh = String(h).padStart(2, '0')
       const mm = String(m).padStart(2, '0')
       options.push(`${hh}:${mm}`)
@@ -55,6 +66,7 @@ function generateTimeOptions() {
   }
   return options
 }
+
 
 function getEarliestDate() {
   const d = new Date()
@@ -304,9 +316,14 @@ export default function ReservePage({ user, onRequireLogin }) {
             </div>
             <div>
               <div className="muted small">預約時間</div>
-              <select className="search-field" value={whenTime} onChange={(e) => setWhenTime(e.target.value)}>
+              <select
+                className="search-field"
+                value={whenTime}
+                onChange={(e) => setWhenTime(e.target.value)}
+                disabled={!whenDate}
+              >
                 <option value="">請選擇</option>
-                {generateTimeOptions().map(t => <option key={t} value={t}>{t}</option>)}
+                {generateTimeOptions(whenDate).map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>

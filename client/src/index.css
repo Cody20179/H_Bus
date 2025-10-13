@@ -24,6 +24,8 @@ body, html, #root, .page-root, .container {
   color: var(--text);
 }
 
+
+
 .card, .card-title, .card-body, .btn, .search-input, .app-title, .subtitle, .route-name, .arrival-item, .font-size-label, .font-size-select, .route-title, .route-desc, .route-btn, .route-list, .route-list *, .arrival-list, .arrival-list *, .reservation-row, .res-time, .res-main, .res-route, .res-meta, .res-count, .res-count-num, .res-count-label, .announcement, .announce-item, .link-btn, .bottom-nav, .nav-item, .nav-item.active, .route-card, .route-card *, .route-sub, .profile-section, .profile-section *, .item, .item-col, .item-desc, .badge, .auth-title, .auth-subtitle, .modal-title, .modal-body, .help-title, .help-sub, .meta-label, .meta-value, .status-chip, .btn-pay-manage, .stop-name, .stop-badge, .phone-pill, .chip, .chip.active {
   font-size: var(--font-size-md) !important;
   line-height: 1.5;
@@ -107,9 +109,16 @@ html,body,#root{height:100%;margin:0;}
   gap:12px;
   padding:0 16px;
 }
+
+.logo-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .logo-square{
-  width:36px;
-  height:36px;
+  width:80px;
+  height:80px;
   border-radius:8px;
   background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.06));
   border: 2px solid rgba(255,255,255,0.10);
@@ -177,7 +186,11 @@ html,body,#root{height:100%;margin:0;}
 
 .card-body{padding:6px 4px;color:var(--text)}
 
-.muted{color:var(--muted);font-weight:500}
+.muted {
+  color: #fff;
+  font-weight: 500;
+}
+
 .center-vertical{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;height:88px}
 .mt-12{margin-top:12px}
 .btn-block{width:100%}
@@ -771,4 +784,38 @@ html,body,#root{height:100%;margin:0;}
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #333;
+}
+
+.help-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.help-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.help-left a {
+  color: #2563eb;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.help-left a:hover {
+  text-decoration: underline;
 }

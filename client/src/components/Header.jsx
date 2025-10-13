@@ -19,11 +19,15 @@ export default function Header() {
           onKeyDown={(e) => e.key === 'Enter' && handleLogo()}
           aria-label="回到首頁"
         >
-          <span className="logo-emoji" aria-hidden>🚌</span>
+          <img
+            src="/Logo.png"
+            alt="市民小巴 Logo"
+            className="logo-image"
+          />
         </div>
         <div className="title-block">
-          <div className="app-title">智慧公車</div>
-          <div className="subtitle muted">公車查詢服務</div>
+          <div className="app-title">市民小巴</div>
+          <div className="subtitle muted">即時動態</div>
         </div>
       </div>
     </header>

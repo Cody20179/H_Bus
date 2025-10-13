@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useState, useRef } from 'react'
+import MyReservations from '../components/MyReservations'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { getMyReservations, cancelReservation } from '../services/api'
 
@@ -6,26 +7,21 @@ import { getMyReservations, cancelReservation } from '../services/api'
 function ProfilePage({ user, onLogin, onLogout }) {
   const navigate = useNavigate()
   const location = useLocation()
-  // 狀態管理
-  const [cancelReason, setCancelReason] = useState('')
-  const [showRouteModal, setShowRouteModal] = useState(false)
-  const [selectedResv, setSelectedResv] = useState(null)
   const [sessionUser, setSessionUser] = useState(null)
   const [sessionLoading, setSessionLoading] = useState(true)
   const [unauthorized, setUnauthorized] = useState(false)
   const [myResv, setMyResv] = useState([])
-  const [resvLoading, setResvLoading] = useState(false)
-  const [resvErr, setResvErr] = useState('')
   const [toastMsg, setToastMsg] = useState('')
-  const [cancelTarget, setCancelTarget] = useState(null)
   const resvRef = useRef(null)
   const [contactField, setContactField] = useState(null)
   const [contactValue, setContactValue] = useState('')
   const [contactError, setContactError] = useState('')
   const [contactSaving, setContactSaving] = useState(false)
   const [showMoreTrips, setShowMoreTrips] = useState(false)
-  const supportPhone = "0912345678"; // ← 真實電話請覆寫
+  const supportPhone = "0800-827656"; // ← 真實電話請覆寫
   const phoneDisplay = supportPhone.replace(/(\d{4})(\d{3})(\d{3})/,'$1 $2 $3'); // 0951 861 516 格式化
+  const supportEmail = "aspring51000@gmail.com";
+  const emailLink = `mailto:${supportEmail}`;
 
   function copyToClipboard(text){
     if (!navigator?.clipboard) {
@@ -151,21 +147,6 @@ function ProfilePage({ user, onLogin, onLogout }) {
       try { if (onLogout) onLogout() } catch {}
     }
   }, [unauthorized])
-
-  // 預約列表載入
-  useEffect(() => {
-    const current = (sessionUser && sessionUser.user_id) ? sessionUser : user
-    const uid = current?.id ?? current?.user_id
-    if (!uid) return
-    let cancelled = false
-    setResvLoading(true)
-    setResvErr('')
-    getMyReservations(uid)
-      .then((rows) => { if (!cancelled) setMyResv(rows) })
-      .catch((e) => { if (!cancelled) setResvErr(String(e.message || e)) })
-      .finally(() => { if (!cancelled) setResvLoading(false) })
-    return () => { cancelled = true }
-  }, [sessionUser, user])
 
   // 導覽狀態處理（預約完成提示、滾動）
   useEffect(() => {
@@ -379,92 +360,10 @@ function ProfilePage({ user, onLogin, onLogout }) {
         </section>
   
         {/* 預約紀錄（串接後端） */}
-        <section className="card" ref={resvRef}>
-          <div className="card-title">
-            <span>我的預約</span>
-            <button
-              className="link-btn"
-              onClick={() => {
-                const uid = user?.id ?? user?.user_id
-                if (!uid) { alert('請先登入'); return }
-                setResvLoading(true); setResvErr('')
-                getMyReservations(uid)
-                  .then(setMyResv)
-                  .catch((e) => setResvErr(String(e.message || e)))
-                  .finally(() => setResvLoading(false))
-              }}
-            >刷新</button>
-          </div>
-          <div className="resv-list">
-            {resvLoading && <div className="muted small">載入中…</div>}
-            {resvErr && <div className="small" style={{ color: '#c0392b' }}>{resvErr}</div>}
-            {!resvLoading && !resvErr && myResv.length === 0 && (
-              <div className="muted small">尚無預約，前往預約吧。</div>
-            )}
+<MyReservations user={user} filterExpired={true} />
 
-            {validReservations.map((r, index) => {
-              const fmt = (s) => {
-                try {
-                  if (!s) return '-'
-                  const d = new Date(s)
-                  if (isNaN(d)) return String(s)
-                  const y = d.getFullYear()
-                  const M = String(d.getMonth()+1).padStart(2,'0')
-                  const D = String(d.getDate()).padStart(2,'0')
-                  const h = String(d.getHours()).padStart(2,'0')
-                  const m = String(d.getMinutes()).padStart(2,'0')
-                  return `${y}-${M}-${D} ${h}:${m}`
-                } catch { return String(s) }
-              }
-              const cls = (v) => {
-                const s = String(v||'').toLowerCase()
-                if (s.includes('pending')) return 'pending'
-                if (s.includes('approved')||s.includes('paid')||s.includes('assigned')||s.includes('complete')) return 'approved'
-                if (s.includes('reject')||s.includes('cancel')||s.includes('fail')) return 'rejected'
-                return 'secondary'
-              }
-              const cancellable = (r.id || r.reservation_id) &&
-              ['審核中', 'pending', 'approved', 'not_assigned'].some(keyword =>
-                String(r.status || '').includes(keyword) ||
-                String(r.review_status || '').toLowerCase().includes(keyword) ||
-                String(r.payment_status || '').toLowerCase().includes(keyword) ||
-                String(r.dispatch_status || '').toLowerCase().includes(keyword)
-              )
-              return (
-                <div className="resv-card" key={index}>
-                  <div className="resv-main">
-                    <div className="resv-title">{r.booking_start_station_name} → {r.booking_end_station_name}</div>
-                    <div className="resv-sub">{fmt(r.booking_time)} ・ {r.booking_number} 人</div>
-                    <div className="small muted">預約編號：{r.reservation_id}</div>
-                    <div className="resv-status">
-                      <span className={`status-chip ${cls(r.review_status)}`}>審核 {statusText(r.review_status)}</span>
-                      <span className={`status-chip ${cls(r.payment_status)}`}>支付 {statusText(r.payment_status)}</span>
-                    </div>
-                  </div>
-                  <div className="resv-actions">
-                    <button
-                      className="btn btn-blue"
-                      onClick={() => {
-                        setSelectedResv(r)
-                        setShowRouteModal(true)
-                      }}
-                    >
-                      查看路線
-                    </button>
-                  {cancellable && (
-                    <button
-                      className="btn"
-                      onClick={() => setCancelTarget(r)} // 不用 confirm，直接打開取消 Modal
-                    >
-                      取消
-                    </button>
-                  )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
+
+
 <section className="card">
   <div className="card-title"><span>最近行程</span></div>
   <div className="list">
@@ -522,36 +421,156 @@ function ProfilePage({ user, onLogin, onLogout }) {
           <div className="card-title" id="help-title"><span>幫助</span></div>
           <div className="card-body">
             <div className="help-list">
-              <div className="help-item">
-                <div className="help-left">
-                  <div className="help-title">聯絡客服</div>
-                  <div className="help-sub muted">客服電話 • 營業時間：週一–週五 09:00 – 18:00</div>
-                </div>
-                <div className="help-right">
-                  <a
-                    className="phone-pill"
-                    href={`tel:${supportPhone}`}
-                    aria-label={`撥打客服電話 ${supportPhone}`}
-                    onClick={(e)=>{/* optional analytics */}}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.87 19.87 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.87 19.87 0 0 1 3.08 4.18 2 2 0 0 1 5 2h3a2 2 0 0 1 2 1.72c.12 1.05.38 2.08.78 3.02a2 2 0 0 1-.45 2.11L9.91 10.09a16 16 0 0 0 6 6l1.24-1.24a2 2 0 0 1 2.11-.45c.94.4 1.97.66 3.02.78A2 2 0 0 1 22 16.92z" fill="currentColor"/>
-                    </svg>
-                    <span className="phone-number" title={supportPhone}>{phoneDisplay}</span>
-                  </a>
-                  <button
-                    type="button"
-                    className="btn-icon btn-copy"
-                    onClick={() => copyToClipboard(supportPhone)}
-                    aria-label="複製電話號碼"
-                    title="複製電話"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zM20 5H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h12v14z" fill="currentColor"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
+
+<div
+  className="help-item"
+  style={{
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+    padding: '8px 0',
+  }}
+>
+  {/* 標題區 */}
+  <div className="help-left">
+    <div
+      className="help-title"
+      style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}
+    >
+      聯絡客服
+    </div>
+    <div
+      className="help-sub muted"
+      style={{ fontSize: '13px', color: '#666', marginBottom: '8px' }}
+    >
+      聯絡時間：週一–週五 09:00 – 18:00
+    </div>
+  </div>
+
+  {/* 聯絡資訊區 */}
+  <div
+    className="help-right"
+    style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      gap: '8px',
+    }}
+  >
+    {/* 電話組 */}
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        flexWrap: 'nowrap',
+      }}
+    >
+      <a
+        className="phone-pill"
+        href={`tel:${supportPhone}`}
+        aria-label={`撥打客服電話 ${supportPhone}`}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          color: '#2563eb',
+          background: '#eef5ff',
+          borderRadius: '20px',
+          padding: '6px 12px',
+          fontWeight: 600,
+          textDecoration: 'none',
+          fontSize: '14px',
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M22 16.92v3a2 2 0 0 1-2.18 2 19.87 19.87 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.87 19.87 0 0 1 3.08 4.18 2 2 0 0 1 5 2h3a2 2 0 0 1 2 1.72c.12 1.05.38 2.08.78 3.02a2 2 0 0 1-.45 2.11L9.91 10.09a16 16 0 0 0 6 6l1.24-1.24a2 2 0 0 1 2.11-.45c.94.4 1.97.66 3.02.78A2 2 0 0 1 22 16.92z"
+            fill="currentColor"
+          />
+        </svg>
+        <span title={supportPhone}>{phoneDisplay}</span>
+      </a>
+      <button
+        type="button"
+        onClick={() => copyToClipboard(supportPhone)}
+        aria-label="複製電話"
+        title="複製電話"
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: '4px',
+          borderRadius: '6px',
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zM20 5H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h12v14z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
+    </div>
+
+    {/* 信箱組 */}
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        flexWrap: 'nowrap',
+      }}
+    >
+      <a
+        className="email-pill"
+        href={emailLink}
+        aria-label={`寄信至 ${supportEmail}`}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          color: '#2563eb',
+          background: '#eef5ff',
+          borderRadius: '20px',
+          padding: '6px 12px',
+          fontWeight: 600,
+          textDecoration: 'none',
+          fontSize: '14px',
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 2v.01L12 13 4 6.01V6h16zM4 18V8.99l8 6 8-6V18H4z"
+            fill="currentColor"
+          />
+        </svg>
+        <span title={supportEmail}>{supportEmail}</span>
+      </a>
+      <button
+        type="button"
+        onClick={() => copyToClipboard(supportEmail)}
+        aria-label="複製信箱"
+        title="複製信箱"
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: '4px',
+          borderRadius: '6px',
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zM20 5H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h12v14z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
               <div className="help-item">
                 <div className="help-left">
                   <div className="help-title">隱私政策</div>
@@ -622,89 +641,6 @@ function ProfilePage({ user, onLogin, onLogout }) {
           </button>
         </div>
       </form>
-    </div>
-  </div>
-)}
-
-{selectedResv && showRouteModal && (
-  <div className="modal-overlay">
-    <div className="modal-card route-modal">
-      {/* 頂部：標題 + 右上角關閉 */}
-      <div className="modal-header">
-        <h3 className="modal-title">路線資訊</h3>
-        <button className="modal-close" onClick={() => setShowRouteModal(false)}>×</button>
-      </div>
-
-      {/* 內容 */}
-      <div className="modal-body">
-        <p><strong>出發：</strong>{selectedResv.booking_start_station_name}</p>
-        <p><strong>到達：</strong>{selectedResv.booking_end_station_name}</p>
-        <p><strong>時間：</strong>{fmt(selectedResv.booking_time)}</p>
-        <p><strong>人數：</strong>{selectedResv.booking_number}</p>
-        <p><strong>預約編號：</strong>{selectedResv.reservation_id}</p>
-      </div>
-
-      {/* 底部兩顆按鈕 */}
-      <div className="modal-actions">
-<button
-  className="btn btn-orange"
-  onClick={() => setCancelTarget(selectedResv)} // 打開 modal，而不是 confirm
->
-  取消預約
-</button>
-
-        <button className="btn btn-blue">付款</button>
-      </div>
-    </div>
-  </div>
-)}
-{cancelTarget && (
-  <div className="modal-overlay">
-    <div className="modal-card">
-      <h3 style={{ fontWeight: "800", fontSize: "18px", marginBottom: "12px" }}>
-        請輸入取消原因
-      </h3>
-      <p>
-        {cancelTarget.booking_start_station_name} → {cancelTarget.booking_end_station_name}<br />
-        時間：{fmt(cancelTarget.booking_time)} ・ 人數：{cancelTarget.booking_number}
-      </p>
-      <textarea
-        className="auth-input"
-        placeholder="請輸入取消原因"
-        value={cancelReason}
-        onChange={(e) => setCancelReason(e.target.value)}
-        style={{ width: '100%', minHeight: '80px', marginTop: '8px' }}
-      />
-      <div className="modal-actions">
-        <button
-          className="btn btn-orange"
-          disabled={!cancelReason.trim()}
-          onClick={async () => {
-            try {
-              await cancelReservation(cancelTarget.reservation_id, cancelReason)
-              const uid = user?.id ?? user?.user_id
-              const next = await getMyReservations(uid)
-              setMyResv(next)
-              setCancelTarget(null) 
-              setCancelReason('') // 清空原因
-              setShowRouteModal(false) 
-            } catch (e) {
-              setToastMsg(String(e.message || e))
-            }
-          }}
-        >
-          確定取消
-        </button>
-        <button
-          className="btn"
-          onClick={() => {
-            setCancelTarget(null)
-            setCancelReason('')
-          }}
-        >
-          返回
-        </button>
-      </div>
     </div>
   </div>
 )}

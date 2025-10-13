@@ -3,12 +3,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from typing import List
+from base64 import b64encode, b64decode
 from urllib.parse import urlparse
+from urllib.parse import quote
+from Crypto.Cipher import AES
 from dotenv import load_dotenv
-# from Github.小巴的備份耶.Client.Backend.MySQL import MySQL_Doing.run
+from typing import List
 from Backend.MySQL import MySQL_Doing
 from Backend import Define
+from pydantic import BaseModel, Field
+from decimal import Decimal, InvalidOperation
+
 import pandas as pd
 import secrets, hashlib, urllib.parse, base64, json, time, hmac, os, redis, httpx
 
@@ -50,6 +55,21 @@ AUTHORIZE_URL = "https://access.line.me/oauth2/v2.1/authorize"
 TOKEN_URL = "https://api.line.me/oauth2/v2.1/token"
 PROFILE_URL = "https://api.line.me/v2/profile"
 APP_SESSION_SECRET = os.getenv("APP_SESSION_SECRET", "my-secret")
+
+# === 金流 相關設定 ===
+MERCHANT_ID   = os.getenv("MERCHANT_ID", "")
+TERMINAL_ID   = os.getenv("TERMINAL_ID", "")
+STORE_CODE    = os.getenv("STORE_CODE", "")
+KEY_HEX       = os.getenv("KEY", "")
+IV_HEX        = os.getenv("IV", "")
+LAYMON        = os.getenv("LAYMON", "iqrc.epay365.com.tw")  # 雷門 host，不要加 https://
+PUBLIC_BASE   = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")  # 例: https://hualenbus.labelnine.app:8600
+
+if not all([MERCHANT_ID, TERMINAL_ID, STORE_CODE, KEY_HEX, IV_HEX, PUBLIC_BASE]):
+    raise RuntimeError("環境變數缺失：請確認 MERCHANT_ID / TERMINAL_ID / STORE_CODE / KEY / IV / PUBLIC_BASE_URL")
+
+KEY = bytes.fromhex(KEY_HEX)
+IV  = bytes.fromhex(IV_HEX)
 
 # === Session 與 Token 工具 ===
 class SessionManager:
@@ -184,6 +204,35 @@ def _unauthorized_response(request: Request, detail: str):
     # API/fetch：回 401 並附上登入入口，讓前端可決定導向
     raise HTTPException(status_code=401, detail={"detail": detail, "login_url": login_url})
     
+# --- AES256-CBC 加解密 ---
+def pad(s: str) -> str:
+    pad_len = 16 - (len(s.encode("utf-8")) % 16)
+    return s + chr(pad_len) * pad_len
+
+def unpad(s: str) -> str:
+    pad_len = ord(s[-1])
+    return s[:-pad_len]
+
+def encrypt_aes(data: str, key: bytes, iv: bytes) -> str:
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    ct_bytes = cipher.encrypt(pad(data).encode("utf-8"))
+    return b64encode(ct_bytes).decode("utf-8")
+
+def decrypt_aes(enc: str, key: bytes, iv: bytes) -> str:
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    pt = cipher.decrypt(b64decode(enc))
+    return unpad(pt.decode("utf-8"))
+
+# ====== 請款請求模型 ======
+class CreatePaymentIn(BaseModel):
+    amount: str = Field(..., description="金額（以元為單位，純數字字串，例如 '10' 或 '199'）")
+    order_number: str = Field(..., min_length=1, max_length=64, description="商家訂單編號")
+    # 若要自訂導回路徑，可開額外欄位；目前用固定 /return
+    # return_path: str | None = "/return"
+
+class CreatePaymentOut(BaseModel):
+    pay_url: str
+
 # === 前端路線資訊 ===
 @app.get("/healthz", tags=["meta"], summary="健康檢查")
 def healthz():
@@ -505,7 +554,68 @@ async def me(request: Request):
         "last_login": row["last_login"],
     }
 
+# ====== 建立付款連結（正式） ======
+@app.post("/payments", response_model=CreatePaymentOut, tags = ["Pay"], summary="建立付款連結")
+def create_payment(body: CreatePaymentIn):
+    # 驗證 amount 為正數（避免浮點誤差，使用 Decimal）
+    try:
+        amt = Decimal(body.amount)
+    except InvalidOperation:
+        raise HTTPException(status_code=400, detail="amount 格式錯誤")
 
+    if amt <= 0 or amt != amt.quantize(Decimal("1")):
+        # 雷門若要求整數元，這裡限制為整數金額；若允許小數請調整 quantize
+        raise HTTPException(status_code=400, detail="amount 必須為正整數（元）")
+
+    payload = {
+        "merchant_id": MERCHANT_ID,
+        "terminal_id": TERMINAL_ID,
+        "store_code":  STORE_CODE,
+        "set_price": str(amt),                     # 金額（元）
+        "pos_order_number": body.order_number,     # 訂單編號
+        "callback_url": f"{PUBLIC_BASE}/callback", # 供雷門伺服器回呼
+        "return_url":   f"{PUBLIC_BASE}/return"    # 供使用者導回顯示頁
+    }
+
+    json_str = json.dumps(payload, separators=(',', ':'))
+    transaction_data = encrypt_aes(json_str, KEY, IV)
+    hash_digest = hashlib.sha256(transaction_data.encode("utf-8")).hexdigest()
+
+    url = f"https://{LAYMON}/calc/pay_encrypt/{STORE_CODE}"
+    full_url = f"{url}?TransactionData={quote(transaction_data)}&HashDigest={hash_digest}"
+
+    return CreatePaymentOut(pay_url=full_url)
+
+# ====== 雷門回傳 callback（伺服器對伺服器） ======
+@app.post("/callback", tags = ["Pay"])
+async def callback(request: Request):
+    body = await request.json()
+    enc_data = body.get("TransactionData")
+    hash_digest = body.get("HashDigest")
+
+    if not enc_data or not hash_digest:
+        raise HTTPException(status_code=400, detail="缺少必要欄位")
+
+    # 驗證 hash
+    if hashlib.sha256(enc_data.encode("utf-8")).hexdigest() != hash_digest:
+        raise HTTPException(status_code=400, detail="Hash 驗證失敗")
+
+    # 解密資料
+    try:
+        decrypted = decrypt_aes(enc_data, KEY, IV)
+        data = json.loads(decrypted)
+        # TODO: 在此更新你的訂單狀態（付款成功/失敗等），依雷門實際回傳欄位解讀
+        return {"status": "ok", "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"解密失敗: {e}")
+
+# ====== 使用者導回頁（前端顯示用） ======
+@app.get("/return", tags = ["Pay"])
+def return_page():
+    # 你可以改成回傳 HTML 或重導到你的前端頁面
+    return {"message": "付款流程結束，這裡顯示給使用者看"}
+
+# === 前端靜態檔案服務 ===
 app.include_router(api)
 app.mount('/', StaticFiles(directory='dist', html=True), name='client')
 
