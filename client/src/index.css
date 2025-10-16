@@ -404,6 +404,7 @@ html,body,#root{height:100%;margin:0;}
 .route-title{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
 .stops-list { display:flex; flex-direction:column; gap:8px; max-height:60vh; overflow:auto; padding-right:6px; }
 .stop-item { display:flex; justify-content:space-between; align-items:center; padding:10px; border-radius:8px; background: #fbfdff; border:1px solid rgba(0,0,0,0.03); }
+.stop-item--highlight { border-color:#e11d48; box-shadow: 0 0 0 3px rgba(225,29,72,.15); }
 .stop-name { font-weight:600; }
 .coord { text-align:right; }
 
@@ -826,6 +827,8 @@ html,body,#root{height:100%;margin:0;}
 .reserve-form, .reserve-form *, .my-reservations, .my-reservations *, .profile-section, .profile-section * {
   font-size: var(--base-font-size) !important;
 }
+.route-card--animate { opacity: 0; transform: translateY(8px); animation: routeFadeIn .36s ease both; }
+@keyframes routeFadeIn { to { opacity: 1; transform: translateY(0); } }
 .btn, .route-card .route-btn, .my-reservations .btn {
   font-size: calc(var(--base-font-size) * 0.95) !important;
   padding: 10px 12px;

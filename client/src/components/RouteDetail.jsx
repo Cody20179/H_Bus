@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getRouteStops } from '../services/api'
 import { getCarPositions } from '../services/api'
 
@@ -12,14 +12,6 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
   const isSingleDirection = route.direction && route.direction.includes('單向')
   const [tick, setTick] = useState(0)
   const [cars, setCars] = useState([])
-
-  // 方向初始防呆：若值不可辨識，預設為去程 改改A
-  useEffect(() => {
-    const t = String(selectedDir || '').trim()
-    if (!/(去|返|回|往|0|1)/.test(t)) {
-      setSelectedDir('去程')
-    }
-  }, [selectedDir])
 
   // 定時刷新 tick
   useEffect(() => {
@@ -59,7 +51,8 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     async function loadCars() {
       try {
         const data = await getCarPositions()
-        if (!cancelled && Array.isArray(data)) {
+        console.log("[GIS_About] API 回傳資料:", data)
+        if (!cancelled) {
           setCars([...data])
           setTick((t) => t + 1)
         }
@@ -71,7 +64,7 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     const id = setInterval(() => {
       console.log("[GIS_About] 重新抓取車輛位置...")
       loadCars()
-    }, 30000)
+    }, 5000)
     return () => { cancelled = true; clearInterval(id) }
   }, [])
 
@@ -102,70 +95,16 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
       etaToHere: s.etaToHere ?? null,
     }))
 
-    // 改B
-    const normDir = (d) => {
-    const t = String(d || '').trim()
-    if (/返|回|1/.test(t)) return '返程'
-    if (/去|往|0/.test(t)) return '去程'
-    return t
-    }
-
-    // const car = cars.find(c =>
-    //   String(c.route) === String(route.id) ||
-    //   String(c.route) === String(route.route_id) ||
-    //   String(c.route) === String(route.name)
-    // )
-
-    const car = (
-    cars.find(c =>
-    (String(c.route) === String(route.id) ||
-    String(c.route) === String(route.route_id) ||
-    String(c.route) === String(route.name)) &&
-    normDir(c.direction) === normDir(selectedDir)
+    const car = cars.find(c =>
+      String(c.route) === String(route.id) ||
+      String(c.route) === String(route.route_id) ||
+      String(c.route) === String(route.name)
     )
-    ||
-    cars.find(c =>
-    String(c.route) === String(route.id) ||
-    String(c.route) === String(route.route_id) ||
-    String(c.route) === String(route.name)
-    )
-    )
-
-    // 若為雙向路線且沒有同向車，整條標示未發車
-    const __isSingle = (() => {
-      try {
-        const ds = new Set((stops || []).map(s => normDir(s.direction || selectedDir)))
-        return ds.size <= 1
-      } catch { return false }
-    })()
-    if (car && !__isSingle && normDir(car.direction) !== normDir(selectedDir)) {
-      return unified.map(s => ({
-        ...s,
-        status: { label: '未發車', tone: 'orange' }
-      }))
-    }
-
-    // 方向字串正規化，避免「返程/回程」、「0/1」等差異造成誤判為未發車 改改A
-    const __normDir = (d) => {
-      const t = String(d || '').trim()
-      if (/返|回|1/.test(t)) return '返程'
-      if (/去|往|0/.test(t)) return '去程'
-      return t
-    }
-    if (car) {
-      const _car = __normDir(car.direction)
-      const _sel = __normDir(selectedDir)
-      console.log(`[RouteDetail] 路線 ${route.name} (${car?.licensePlate ?? car?.license_plate ?? car?.car_licence ?? '未知'}`)
-      if (_car !== _sel) {
-        // 覆寫以通過下方的嚴格等號比較
-        car.direction = selectedDir
-      }
-    }
 
     if (!car) {
       return unified.map(s => ({
         ...s,
-        status: { label: '未發車', tone: 'orange' }
+        status: { label: "未發車", tone: "orange" }
       }))
     }
 
@@ -173,7 +112,7 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     if (car.direction !== selectedDir) {
       return unified.map(s => ({
         ...s,
-        status: { label: '未發車', tone: 'orange' }
+        status: { label: "未發車", tone: "orange" }
       }))
     }
 

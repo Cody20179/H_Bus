@@ -152,7 +152,9 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
           if (a !== b) setArrivals(next)
           setLastUpdated(new Date())
           try {
-            const cars = await getCarPositions().catch(() => [])
+            const res = await fetch('/api/GIS_AllFast')
+            const json = await res.json()
+            const cars = Array.isArray(json.data) ? json.data : []
             const pickCur = routes.slice(0, 3)
             const normDir = (d) => {
               const t = String(d || '').trim()
@@ -161,15 +163,25 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
               return t
             }
             const itemsCur = pickCur.map((r) => {
-              const car = (cars || []).find(c => String(c.route) === String(r.id) || String(c.route) === String(r.name))
+              const routeCars = (cars || []).filter(
+                c => String(c.route) === String(r.id) || String(c.route) === String(r.name)
+              )
+
+              // 有多方向時，自動挑選有座標的；若都沒有，就拿第一筆
+              let car = null
+              if (routeCars.length > 0) {
+                // 優先：有座標的（代表正在行駛）
+                car = routeCars.find(c => c.X != null && c.Y != null) || routeCars[0]
+              }
+
               return {
                 id: r.id,
                 route: r.name,
                 directionLabel: car ? `(${normDir(car.direction) === '返程' ? '返' : '去'})` : '',
-                stop: car?.currentLocation || '—',
+                stop: car?.Current_Loaction || car?.nearest_stop_name || '—',
                 eta: '',
-                status: car ? '當前所在' : '未發車',
-                key: `${r.id}-${car?.currentLocation || 'none'}`,
+                status: car && car.X != null && car.Y != null ? '當前所在' : '未發車',
+                key: `${r.id}-${car?.station_id || 'none'}`,
               }
             })
             if (!cancelled) {

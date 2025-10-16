@@ -28,34 +28,16 @@ export async function getRoutes() {
     }))
 }
 
-// export async function getRouteStops(routeId, direction) {
-//   const res = await fetch(`${BASE}/Route_Stations`, {
-//     method: 'POST',
-//     headers: {
-//       accept: 'application/json',
-//       'content-type': 'application/json',
-//     },
-//     body: JSON.stringify({ route_id: routeId, direction }),
-//   })
-
 // 改改A
-export async function getRouteStops(routeId, direction) { 
-  // 正規化方向字串，避免「回程/返程」或 0/1 差異
-  const normDir = (d) => {
-    const t = String(d || '').trim()
-    if (/返|回|1/.test(t)) return '返程'
-    if (/去|往|0/.test(t)) return '去程'
-    return t
-  }
+export async function getRouteStops(routeId, direction) {
   const res = await fetch(`${BASE}/Route_Stations`, {
     method: 'POST',
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ route_id: Number(routeId) }),
+    body: JSON.stringify({ route_id: routeId, direction }),
   })
-
   if (!res.ok) {
     throw new Error(`Failed to load stops: ${res.status}`)
   }
@@ -84,6 +66,61 @@ export async function getRouteStops(routeId, direction) {
     }
   }
   return sorted
+}
+
+
+// Bulk: fetch all stops (both directions) for a route in one request
+export async function getRouteStopsBulk(routeId) {
+  const __mapDir = (v) => {
+    const t = String(v || '').trim()
+    if (/返|回|1/.test(t)) return '返程'
+    if (/去|往|0/.test(t)) return '去程'
+    return t
+  }
+  const res = await fetch(`${BASE}/Route_Stations`, {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ route_id: Number(routeId) }), // no direction -> all
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to load stops (bulk): ${res.status}`)
+  }
+  const data = await res.json()
+  const rows = Array.isArray(data) ? data : []
+  const mapped = rows.map((s) => ({
+    routeId: s.route_id,
+    routeName: s.route_name,
+    direction: __mapDir(s.direction),
+    stopName: s.stop_name,
+    latitude: s.latitude,
+    longitude: s.longitude,
+    etaFromStart: Number(s.eta_from_start) || 0,
+    order: s.stop_order,
+    createdAt: s.created_at,
+  }))
+  const byDir = {
+    去程: [],
+    返程: [],
+  }
+  for (const r of mapped) {
+    const d = __mapDir(r.direction)
+    if (d === '返程') byDir.返程.push(r)
+    else if (d === '去程') byDir.去程.push(r)
+  }
+  byDir.去程.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  byDir.返程.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  // add etaToHere
+  const addEtaToHere = (arr) => {
+    for (let i = 0; i < arr.length; i++) {
+      arr[i].etaToHere = i === 0 ? 0 : (arr[i].etaFromStart - arr[i-1].etaFromStart)
+    }
+  }
+  addEtaToHere(byDir.去程)
+  addEtaToHere(byDir.返程)
+  return byDir
 }
 
 export async function getStations() {
@@ -151,17 +188,13 @@ export async function getTomorrowReservations(userId) {
 }
 
 export async function getCarPositions() {
-  const res = await fetch(`${BASE}/GIS_About`)
+  const res = await fetch(`${BASE}/GIS_AllFast`)
   const data = await res.json()
-  // 後端以 DataFrame to_dict() 回傳「欄位->索引」結構，這裡轉成陣列
-  const keys = data?.route ? Object.keys(data.route) : []
-  return keys.map((i) => ({
-    route: data.route?.[i] ?? null,
-    X: data.X?.[i] != null ? parseFloat(data.X[i]) : null,
-    Y: data.Y?.[i] != null ? parseFloat(data.Y[i]) : null,
-    direction: data.direction?.[i] ?? null,
-    currentLocation: data.Current_Loaction?.[i] ?? null,
-    // 新增：若後端提供車牌
-    licensePlate: data.license_plate?.[i] ?? null,
+  return Object.keys(data.route).map(i => ({
+    route: data.route[i],
+    X: parseFloat(data.X[i]),
+    Y: parseFloat(data.Y[i]),
+    direction: data.direction[i],
+    currentLocation: data.Current_Loaction[i]
   }))
 }

@@ -1,0 +1,12 @@
+from Backend.MySQL import MySQL_Doing
+import pandas as pd
+import math
+
+mysql_doing = MySQL_Doing()
+
+data = mysql_doing.run("select * from bus_route_stations;")
+df = pd.DataFrame(data)
+print(df)
+
+df_ = pd.read_csv("E:\CODY\Program\H_Bus\Client\?°ç??‚åˆ».csv")
+print(df_)

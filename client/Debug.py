@@ -8,42 +8,85 @@ def haversine(lat1, lon1, lat2, lon2):
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2)**2
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-# --- 初始化 ---
-mysql_doing = MySQL_Doing()
-Route_ID = 2
+# --- 統一方向名稱 ---
+def normalize_direction(x):
+    t = str(x or "").strip()
+    if "返" in t or "回" in t or t == "1":
+        return "返程"
+    return "去程"
 
-# --- 取得路線排程 ---
-route_results = mysql_doing.run(f"SELECT * FROM route_schedule WHERE route_no = {Route_ID} LIMIT 1;")
-df_route = pd.DataFrame(route_results)
-license_plate = df_route["license_plate"].iloc[0]
-direction = df_route["direction"].iloc[0]
+# --- 連線 ---
+db = MySQL_Doing()
 
-# --- 最新車輛位置 ---
-car_results = mysql_doing.run(
-    f'SELECT * FROM ttcarimport WHERE car_licence = "{license_plate}" ORDER BY Gpstime DESC LIMIT 1;'
-)
-df_car = pd.DataFrame(car_results)
-car_lat = float(df_car["X"].iloc[0])
-car_lon = float(df_car["Y"].iloc[0])
+# 撈出所有「正常營運」的班次
+dfB = pd.DataFrame(db.run('SELECT * FROM route_schedule WHERE operation_status = "正常營運"'))
+if dfB.empty:
+    print("❌ 沒有正常營運的班次")
+    exit()
 
-# --- 站點資料 ---
-station_results = mysql_doing.run(
-    f'SELECT * FROM bus_route_stations WHERE route_id = "{Route_ID}" AND direction = "{direction}";'
-)
-df_station = pd.DataFrame(station_results)
+dfB["direction"] = dfB["direction"].map(normalize_direction)
+print("🚌 營運班次：")
+print(dfB[["route_no", "direction", "license_plate"]])
 
-# --- 計算距離並找出最近站 ---
-df_station["distance_m"] = df_station.apply(
-    lambda row: haversine(car_lat, car_lon, float(row["latitude"]), float(row["longitude"])),
-    axis=1
-)
-nearest = df_station.loc[df_station["distance_m"].idxmin()]
+# 撈出所有站點
+dfA = pd.DataFrame(db.run('SELECT route_id, direction, latitude, longitude, stop_name FROM bus_route_stations'))
+if dfA.empty:
+    print("❌ 找不到站點資料")
+    exit()
 
-# --- 輸出結果 ---
-print(f"車牌：{license_plate}")
-print(f"最近的站點：{nearest['stop_name']}（距離約 {nearest['distance_m']:.1f} 公尺）")
-print(f"預估順序：第 {nearest['stop_order']} 站 / 總共 {len(df_station)} 站")
-print(f"該站點ID：{nearest['station_id']}")
+dfA["direction"] = dfA["direction"].map(normalize_direction)
+print("\n📍 站點資料：")
+print(dfA.head())
+
+# 結果儲存
+results = []
+
+# --- 主流程：逐台車找最近站 ---
+for _, row in dfB.iterrows():
+    plate = row["license_plate"]
+    route_id = int(row["route_no"])
+    direction = row["direction"]
+
+    # 抓該車的最新位置（注意 X=經度, Y=緯度）
+    sql = f'SELECT Y AS latitude, X AS longitude FROM ttcarimport WHERE car_licence = "{plate}" ORDER BY seq DESC LIMIT 1'
+    dfC = pd.DataFrame(db.run(sql))
+    if dfC.empty:
+        print(f"⚠️ 找不到 {plate} 的座標")
+        continue
+
+    car_lat = float(dfC.iloc[0]["latitude"])
+    car_lon = float(dfC.iloc[0]["longitude"])
+
+    # 找該路線該方向的所有站
+    df_route = dfA.loc[(dfA["route_id"] == route_id) & (dfA["direction"] == direction)].copy()
+    if df_route.empty:
+        print(f"⚠️ 找不到 {route_id} {direction} 的站點資料")
+        continue
+
+    # 計算距離
+    df_route.loc[:, "distance_m"] = df_route.apply(
+        lambda s: haversine(car_lat, car_lon, float(s["latitude"]), float(s["longitude"])),
+        axis=1
+    )
+
+    # 找出最近站
+    nearest = df_route.loc[df_route["distance_m"].idxmin()]
+
+    results.append({
+        "license_plate": plate,
+        "route_id": route_id,
+        "direction": direction,
+        "nearest_stop": nearest["stop_name"],
+        "distance_m": round(nearest["distance_m"], 1)
+    })
+
+# --- 結果輸出 ---
+if results:
+    df_result = pd.DataFrame(results)
+    print("\n🚏 最近站點結果：")
+    print(df_result)
+else:
+    print("❌ 沒有任何車輛找到最近站點。")

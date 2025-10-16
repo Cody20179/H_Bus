@@ -1,4 +1,4 @@
-from pydantic import BaseModel,Field
+﻿from pydantic import BaseModel,Field
 from typing import Optional, Literal
 from datetime import datetime
 
@@ -15,7 +15,7 @@ class StationOut(BaseModel):
 
 class RouteStationsQuery(BaseModel):
     route_id: int = Field(..., ge=1)
-    direction: Optional[Literal["去程", "回程", "單程"]] = None
+    direction: Optional[Literal["去程", "返程", "回程", "0", "1"]] = None
 
 class ReservationReq(BaseModel):
     user_id: int
@@ -28,7 +28,7 @@ class CancelReq(BaseModel):
     reservation_id: int
     cancel_reason: str 
 
-# === 資料模型 ===
+# === 鞈?璅∪? ===
 class CarBackupInsert(BaseModel):
     rcv_dt: Optional[str] = None 
     car_licence: str
@@ -37,7 +37,8 @@ class CarBackupInsert(BaseModel):
     Y: float
     Speed: int
     Deg: int
-    acc: Optional[bool] = None     # ← 改成布林
+    acc: Optional[bool] = None     # ???寞?撣?
     route: Optional[str] = None
     direction: Optional[str] = None
     Current_Loaction: Optional[str] = None
+

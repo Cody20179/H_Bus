@@ -1,0 +1,100 @@
+    return resp
+
+@app.get("/me", tags=["Auth"], summary="?–å?ä½¿ç”¨?…è?è¨?)
+async def me(request: Request):
+    app_token = request.cookies.get("app_session")
+    if not app_token:
+        return _unauthorized_response(request, "not logged in")
+
+    result = MySQL_Doing.run(f"""
+        SELECT user_id, line_id, username, email, phone, last_login
+        FROM users
+        WHERE session_token = '{app_token}'
+        LIMIT 1;
+    """)
+
+    if result.empty:
+        # ?²å?ï¼šè‡ª?•æ???Redis è£¡å??‰ç? session
+        uid = SessionManager.verify_session_token(app_token)
+        if uid:
+            r.delete(f"user:{uid}")
+            r.delete(f"session:{app_token}")
+            print(f"[CLEANUP] æ¸…æ??¡æ? session: user={uid}")
+        return _unauthorized_response(request, "session not found")
+
+    row = result.iloc[0].to_dict()
+    return {
+        "user_id": row["user_id"],
+        "line_id": row["line_id"],
+        "username": row["username"],
+        "email": row["email"],
+        "phone": row["phone"],
+        "last_login": row["last_login"],
+    }
+
+# ====================================
+# ?§¾ å»ºç?ä»˜æ¬¾???
+# ====================================
+@app.post("/payments", response_model=CreatePaymentOut)
+def create_payment(body: CreatePaymentIn):
+    amt = Decimal(body.amount)
+    if amt <= 0 or amt != amt.quantize(Decimal("1")):
+        raise HTTPException(status_code=400, detail="amount å¿…é??ºæ­£?´æ•¸")
+
+    payload = {
+        "set_price": str(amt),
+        "pos_id": "01",
+        "pos_order_number": body.order_number,
+        "callback_url": f"{PUBLIC_BASE}/callback",
+        "return_url": f"{PUBLIC_BASE}/return",
+        "nonce": secrets.token_hex(8),  # ? é€™è?
+    }
+
+    # === AES ? å? ===
+    transaction_data = encrypt_aes(payload)
+
+    # === SHA256 ?œæ?ï¼ˆæ³¨?ï??å???URL encode ?„å?å§?Base64 å­—ä¸²ï¼?==
+    hash_digest = hashlib.sha256(transaction_data.encode("utf-8")).hexdigest()
+
+    print("?Ÿå? JSON:", payload)
+    print("? å?å¾?TransactionData:", transaction_data)
+    print("?¬åœ°ç®—å‡º??HashDigest:", hash_digest)
+
+    # === URL encode å¾Œç??æ?çµ‚ç¶²?€ ===
+    full_url = (
+        f"https://{LAYMON}/calc/pay_encrypt/{STORE_CODE}"
+        f"?TransactionData={quote(transaction_data)}&HashDigest={hash_digest}"
+    )
+
+    return CreatePaymentOut(pay_url=full_url)
+
+# ====================================
+# ?? ?·é? callbackï¼ˆä¼º?å™¨å°ä¼º?å™¨ï¼?
+# ====================================
+@app.post("/callback")
+async def callback(request: Request):
+    body = await request.json()
+    enc_data = body.get("TransactionData")
+    hash_digest = body.get("HashDigest")
+
+    if not enc_data or not hash_digest:
+        raise HTTPException(status_code=400, detail="ç¼ºå?å¿…è?æ¬„ä?")
+
+    # é©—è? hash
+    local_hash = hashlib.sha256(enc_data.encode("utf-8")).hexdigest()
+    if local_hash != hash_digest:
+        raise HTTPException(status_code=400, detail="Hash é©—è?å¤±æ?")
+
+    try:
+        data = decrypt_aes(enc_data)
+        order_number = data.get("pos_order_number")
+        if order_number:
+            sql = f"UPDATE reservation SET payment_status = 'paid' WHERE reservation_id = '{order_number}'"
+            MySQL_Doing.run(sql)
+
+        # return {"status": "ok", "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"è§??å¤±æ?: {e}")
+
+# ====================================
+# ?? ä½¿ç”¨?…å??žé?
