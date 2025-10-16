@@ -155,6 +155,7 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     if (car) {
       const _car = __normDir(car.direction)
       const _sel = __normDir(selectedDir)
+      console.log(`[RouteDetail] 路線 ${route.name} (${car?.licensePlate ?? car?.license_plate ?? car?.car_licence ?? '未知'}`)
       if (_car !== _sel) {
         // 覆寫以通過下方的嚴格等號比較
         car.direction = selectedDir

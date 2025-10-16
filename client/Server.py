@@ -852,7 +852,59 @@ def generate_qr_code(
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
-    
+    # === 路線排班相關操作 ===
+@api.get("/route_schedule", tags=["Admin"], summary="取得所有排班")
+def get_route_schedule():
+    sql = """
+    SELECT id, route_no, direction, special_type, operation_status,
+           date, departure_time, license_plate, driver_name, employee_id
+    FROM route_schedule
+    ORDER BY route_no ASC, departure_time ASC
+    """
+    rows = MySQL_Doing.run(sql)
+    if hasattr(rows, "to_dict"):
+        return {"status": "success", "data": rows.to_dict(orient="records")}
+    return {"status": "success", "data": rows}
+
+@api.post("/route_schedule/add", tags=["Admin"], summary="新增排班")
+def add_route_schedule(data: dict = Body(...)):
+    sql = f"""
+    INSERT INTO route_schedule
+      (route_no, direction, special_type, operation_status, date, departure_time, license_plate, driver_name, employee_id)
+    VALUES
+      ('{data.get("route_no")}', '{data.get("direction")}', {f"'{data.get('special_type')}'" if data.get("special_type") else "NULL"},
+       '{data.get("operation_status", "正常營運")}', '{data.get("date")}', '{data.get("departure_time")}',
+       '{data.get("license_plate")}', '{data.get("driver_name")}', '{data.get("employee_id")}')
+    """
+    MySQL_Doing.run(sql)
+    return {"status": "success", "message": "新增成功"}
+
+
+@api.put("/route_schedule/update/{id}", tags=["Admin"], summary="更新排班")
+def update_route_schedule(id: int, data: dict = Body(...)):
+    sql = f"""
+    UPDATE route_schedule SET
+        route_no = '{data.get("route_no")}',
+        direction = '{data.get("direction")}',
+        special_type = {f"'{data.get('special_type')}'" if data.get("special_type") else "NULL"},
+        operation_status = '{data.get("operation_status", "正常營運")}',
+        date = '{data.get("date")}',
+        departure_time = '{data.get("departure_time")}',
+        license_plate = '{data.get("license_plate")}',
+        driver_name = '{data.get("driver_name")}',
+        employee_id = '{data.get("employee_id")}'
+    WHERE id = {id}
+    """
+    MySQL_Doing.run(sql)
+    return {"status": "success", "message": f"排班 {id} 更新成功"}
+
+
+@api.delete("/route_schedule/delete/{id}", tags=["Admin"], summary="刪除排班")
+def delete_route_schedule(id: int):
+    sql = f"DELETE FROM route_schedule WHERE id = {id}"
+    MySQL_Doing.run(sql)
+    return {"status": "success", "message": f"排班 {id} 已刪除"}
+
 # === 使用者更新資訊 ===
 @api.post("/users/update_mail", tags=["Users"], summary="更新使用者Email")
 def update_mail(user_id: int, email: str):
