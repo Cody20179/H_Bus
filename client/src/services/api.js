@@ -134,11 +134,15 @@ export async function getTomorrowReservations(userId) {
 export async function getCarPositions() {
   const res = await fetch(`${BASE}/GIS_About`)
   const data = await res.json()
-  return Object.keys(data.route).map(i => ({
-    route: data.route[i],
-    X: parseFloat(data.X[i]),
-    Y: parseFloat(data.Y[i]),
-    direction: data.direction[i],
-    currentLocation: data.Current_Loaction[i]
+  // 後端以 DataFrame to_dict() 回傳「欄位->索引」結構，這裡轉成陣列
+  const keys = data?.route ? Object.keys(data.route) : []
+  return keys.map((i) => ({
+    route: data.route?.[i] ?? null,
+    X: data.X?.[i] != null ? parseFloat(data.X[i]) : null,
+    Y: data.Y?.[i] != null ? parseFloat(data.Y[i]) : null,
+    direction: data.direction?.[i] ?? null,
+    currentLocation: data.Current_Loaction?.[i] ?? null,
+    // 新增：若後端提供車牌
+    licensePlate: data.license_plate?.[i] ?? null,
   }))
 }

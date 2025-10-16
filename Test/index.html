@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>轉珠打怪小遊戲</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="game-wrapper">
+      <header class="topbar">
+        <h1>轉珠打怪</h1>
+        <div class="controls">
+          <button id="btn-restart">重新開始</button>
+          <span class="hint">提示：點選格子，再點相鄰格子交換</span>
+        </div>
+      </header>
+
+      <section class="hud">
+        <div class="panel player">
+          <div class="title">玩家</div>
+          <div class="hpbar">
+            <div id="player-hp-fill" class="fill"></div>
+          </div>
+          <div class="stats">
+            <span id="player-hp-text"></span>
+            <span>SP：</span>
+            <div class="spbar">
+              <div id="player-sp-fill" class="fill"></div>
+            </div>
+            <span id="player-sp-text"></span>
+          </div>
+        </div>
+        <div class="panel enemy">
+          <div class="title">魔物</div>
+          <div class="hpbar">
+            <div id="enemy-hp-fill" class="fill danger"></div>
+          </div>
+          <div class="stats">
+            <span id="enemy-hp-text"></span>
+            <span class="atk">ATK：<span id="enemy-atk-text"></span></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="board-and-skills">
+        <div id="board" class="board" aria-label="轉珠棋盤" role="grid"></div>
+
+        <aside class="skills">
+          <div class="skills-title">技能</div>
+          <button id="skill-heal" class="skill" data-cost="25">治癒 +30 HP (25SP)</button>
+          <button id="skill-fire" class="skill" data-cost="40">火球 50 傷害 (40SP)</button>
+          <button id="skill-buff" class="skill" data-cost="50">狂怒 2x 傷害 (50SP)</button>
+          <div class="turn-info">回合：<span id="turn-phase">玩家行動</span></div>
+          <div class="combo-info">連擊：<span id="combo-count">0</span></div>
+        </aside>
+      </section>
+
+      <section class="log">
+        <div class="log-title">戰鬥紀錄</div>
+        <div id="log-list" class="log-list" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <script src="./game.js"></script>
+  </body>
+  </html>
+

@@ -1,45 +1,20 @@
-# ====================================
-# 🧩 專案內部模組
-# ====================================
-from Backend import Define
-from Backend.MySQL import MySQL_Doing
-
-# ====================================
-# 📦 第三方套件
-# ====================================
-from fastapi import FastAPI, Request, HTTPException, APIRouter, Body
+from fastapi import FastAPI, Request, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, FileResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
-from dotenv import load_dotenv
-from pydantic import BaseModel, Field
-import pandas as pd
-import redis
-import httpx
-
-# ====================================
-# ✅ 標準庫
-# ====================================
-import os
-import json
-import time
-import hmac
-import base64
-import hashlib
-import secrets
-import requests
-import urllib.parse
-import numpy as np
-import pandas as pd
-from datetime import datetime
-from urllib.parse import urlparse, quote
-from binascii import unhexlify
 from base64 import b64encode, b64decode
-from decimal import Decimal, InvalidOperation
+from urllib.parse import urlparse
+from urllib.parse import quote
+from Crypto.Cipher import AES
+from dotenv import load_dotenv
 from typing import List
+from Backend.MySQL import MySQL_Doing
+from Backend import Define
+from pydantic import BaseModel, Field
+from decimal import Decimal, InvalidOperation
+import pandas as pd
+import secrets, hashlib, urllib.parse, base64, json, time, hmac, os, redis, httpx
 
 api = APIRouter(prefix='/api')
 
@@ -86,7 +61,7 @@ STORE_CODE    = os.getenv("STORE_CODE", "")
 KEY_HEX       = os.getenv("KEY", "")
 IV_HEX        = os.getenv("IV", "")
 LAYMON        = os.getenv("LAYMON", "iqrc.epay365.com.tw")  # 雷門 host，不要加 https://
-PUBLIC_BASE   = os.getenv("FRONTEND_DEFAULT_URL", "").rstrip("/") 
+PUBLIC_BASE   = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")  # 例: https://hualenbus.labelnine.app:8600
 
 if not all([MERCHANT_ID, TERMINAL_ID, STORE_CODE, KEY_HEX, IV_HEX, PUBLIC_BASE]):
     raise RuntimeError("環境變數缺失：請確認 MERCHANT_ID / TERMINAL_ID / STORE_CODE / KEY / IV / PUBLIC_BASE_URL")
@@ -228,19 +203,18 @@ def _unauthorized_response(request: Request, detail: str):
     raise HTTPException(status_code=401, detail={"detail": detail, "login_url": login_url})
     
 # --- AES256-CBC 加解密 ---
+def pad(s: str) -> str:
+    pad_len = 16 - (len(s.encode("utf-8")) % 16)
+    return s + chr(pad_len) * pad_len
+
 def unpad(s: str) -> str:
     pad_len = ord(s[-1])
     return s[:-pad_len]
 
-def encrypt_aes(data: dict) -> str:
-    """依雷門規範 AES-256-CBC + PKCS7 padding + Base64"""
-    key = bytes.fromhex(KEY_HEX)
-    iv = bytes.fromhex(IV_HEX)
-    json_str = json.dumps(data, separators=(",", ":"))
+def encrypt_aes(data: str, key: bytes, iv: bytes) -> str:
     cipher = AES.new(key, AES.MODE_CBC, iv)
-    encrypted_bytes = cipher.encrypt(pad(json_str.encode("utf-8"), 16))
-    return base64.b64encode(encrypted_bytes).decode("utf-8")
-
+    ct_bytes = cipher.encrypt(pad(data).encode("utf-8"))
+    return b64encode(ct_bytes).decode("utf-8")
 
 def decrypt_aes(enc: str, key: bytes, iv: bytes) -> str:
     cipher = AES.new(key, AES.MODE_CBC, iv)
@@ -341,293 +315,23 @@ def yo_hualien():
 
 @api.get("/GIS_About", tags=["Client"], summary="取得最新車輛資訊")
 def Get_GIS_About():
-    """以 route_schedule 主導，回傳前端所需欄位（維持原結構）。
-    - route: 路線 ID
-    - X, Y: 車輛經緯度（X=lng, Y=lat）
-    - direction: 去程/返程
-    - Current_Loaction: 以經緯度粗估之最近站名
-    若當日無排班，退回以 car_backup 各路線最新一筆為基礎（不再限制 1,2,3）。
-    """
-    # 1) 今日排班（正常營運）
-    sch = MySQL_Doing.run(
-        """
-        SELECT
-          CAST(route_no AS SIGNED) AS route_id,
-          direction,
-          license_plate
-        FROM route_schedule
-        WHERE date = CURDATE()
-          AND operation_status = '正常營運'
-        """
-    )
+    Results = MySQL_Doing.run("""
+    Select route from car_resource
+    where route != 'None'
+    """)
 
-    # 無排班：沿用舊邏輯，但擴充到所有路線
-    if getattr(sch, "empty", False):
-        fallback = MySQL_Doing.run(
-            """
-            SELECT c.route, c.X, c.Y, c.direction, c.Current_Loaction
-            FROM car_backup c
-            JOIN (
-                SELECT route, MAX(seq) AS max_seq
-                FROM car_backup
-                GROUP BY route
-            ) t ON c.route = t.route AND c.seq = t.max_seq;
-            """
-        )
-        try:
-            return fallback.to_dict()
-        except Exception:
-            # 保底處理：轉成 records
-            try:
-                return (fallback if isinstance(fallback, list) else [])
-            except Exception:
-                return {}
-
-    # 2) 取車牌最新定位
-    sch["route_id"] = pd.to_numeric(sch["route_id"], errors="coerce").astype("Int64")
-    sch = sch.dropna(subset=["route_id", "license_plate"]).copy()
-    if sch.empty:
-        empty_df = pd.DataFrame(columns=["route", "X", "Y", "direction", "Current_Loaction"])  # noqa
-        return empty_df.to_dict()
-
-    plates = sch["license_plate"].dropna().astype(str).unique().tolist()
-    if not plates:
-        empty_df = pd.DataFrame(columns=["route", "X", "Y", "direction", "Current_Loaction"])  # noqa
-        return empty_df.to_dict()
-
-    esc = [p.replace("'", "''") for p in plates]
-    in_list = "','".join(esc)
-
-    pos = MySQL_Doing.run(
-        f"""
-        SELECT
-        b.car_licence AS plate,
-        b.X, b.Y, b.Speed, b.Deg, b.acc, b.rcv_dt
-        FROM ttcarimport b
-        JOIN (
-        SELECT car_licence AS plate, MAX(seq) AS max_seq
-        FROM ttcarimport
-        WHERE car_licence IN ('{in_list}')
-        GROUP BY car_licence
-        ) t ON b.car_licence = t.plate AND b.seq = t.max_seq
-        """
-    )
-
-
-    # 3) 站點（route_id + direction）
-    route_ids = sch["route_id"].dropna().astype(int).unique().tolist()
-    if not route_ids:
-        empty_df = pd.DataFrame(columns=["route", "X", "Y", "direction", "Current_Loaction"])  # noqa
-        return empty_df.to_dict()
-
-    dirs = sch["direction"].dropna().astype(str).unique().tolist()
-    esc_dirs = [d.replace("'", "''") for d in dirs]
-    dir_list = "','".join(esc_dirs)
-    id_list = ",".join(str(i) for i in route_ids)
-
-    stops = MySQL_Doing.run(
-        f"""
-        SELECT
-        CAST(route_id AS SIGNED) AS route_id,
-        direction,
-        stop_name AS stop_name,
-        CAST(latitude AS DECIMAL(12,8)) AS latitude,
-        CAST(longitude AS DECIMAL(12,8)) AS longitude,
-        CAST(stop_order AS SIGNED) AS stop_order
-        FROM bus_route_stations
-        WHERE route_id IN ({id_list})
-        AND direction IN ('{dir_list}')
-        ORDER BY route_id, direction, stop_order
-        """
-    )
-
-    # 4) 合併計算最近站
-    rows = []
-    pos = pos.rename(columns={"license_plate": "plate"}) if not getattr(pos, "empty", False) else pd.DataFrame(columns=["plate"])  # noqa
-    merged = sch.rename(columns={"license_plate": "plate"}).merge(pos, on="plate", how="left")
-
-    def haversine_np(lat1, lon1, lat2, lon2):
-        R = 6371000.0
-        lat1 = np.radians(lat1); lon1 = np.radians(lon1)
-        lat2 = np.radians(lat2); lon2 = np.radians(lon2)
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
-        a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
-        return 2 * R * np.arcsin(np.sqrt(a))
-
-    for _, r in merged.iterrows():
-        route_id = int(r["route_id"]) if pd.notna(r["route_id"]) else None
-        direction = str(r["direction"]) if pd.notna(r["direction"]) else None
-        x = r.get("X"); y = r.get("Y")
-
-        if route_id is None or not direction:
-            continue
-
-        if pd.isna(x) or pd.isna(y):
-            rows.append(dict(
-                route=str(route_id),
-                direction=direction,
-                X=None, Y=None,
-                Current_Loaction=None,
-                license_plate=r.get("plate")
-            ))
-            continue
-
-        sub = stops[(stops["route_id"] == route_id) & (stops["direction"] == direction)]
-        if getattr(sub, "empty", False):
-            rows.append(dict(
-                route=str(route_id),
-                direction=direction,
-                X=float(x), Y=float(y),
-                Current_Loaction=None,
-                license_plate=r.get("plate")
-            ))
-            continue
-
-        dist = haversine_np(
-            float(y), float(x),
-            sub["latitude"].to_numpy(dtype=float),
-            sub["longitude"].to_numpy(dtype=float)
-        )
-        idx = int(np.argmin(dist))
-        nearest = sub.iloc[idx]
-
-        rows.append(dict(
-            route=str(route_id),
-            direction=direction,
-            X=float(x), Y=float(y),
-            Current_Loaction=str(nearest.get("stop_name") or ""),
-            license_plate=r.get("plate")
-        ))
-
-    df = pd.DataFrame(rows, columns=["route", "X", "Y", "direction", "Current_Loaction", "license_plate"])  # noqa
-    print(df[["route", "X", "Y", "direction", "Current_Loaction", "license_plate"]].to_dict())
-    return df[["route", "X", "Y", "direction", "Current_Loaction", "license_plate"]].to_dict()
-
-@api.get("/GIS_ByRoute", tags=["Client"], summary="Get current bus and nearest stop by route_id")
-def get_gis_by_route(route_id: int):
-    """
-    Given route_id, return current car position and nearest stop info.
-    Returns fields: route_id, direction, license_plate, car_lon, car_lat, rcv_dt,
-    nearest_stop_name, nearest_distance_m, nearest_stop_order, total_stops, station_id.
-    """
-    # 1) Find plate and direction from schedule (latest by date)
-    rs = MySQL_Doing.run(
-        f"""
-        SELECT route_no AS route_id, direction, license_plate
-        FROM route_schedule
-        WHERE route_no = {int(route_id)}
-        ORDER BY date DESC
-        LIMIT 1
-        """
-    )
-
-    if not rs or (hasattr(rs, "empty") and rs.empty):
-        raise HTTPException(status_code=404, detail="route not found in schedule")
-
-    try:
-        row = rs.iloc[0] if hasattr(rs, "iloc") else rs[0]
-        direction = str(row["direction"]) if isinstance(row, dict) else str(row.direction)
-        plate = (row["license_plate"] if isinstance(row, dict) else row.license_plate)
-    except Exception:
-        if hasattr(rs, "to_dict"):
-            d = rs.to_dict("records")[0]
-            direction = str(d.get("direction", ""))
-            plate = d.get("license_plate")
-        else:
-            d = rs[0] if isinstance(rs, list) and rs else {}
-            direction = str((d or {}).get("direction", ""))
-            plate = (d or {}).get("license_plate")
-
-    if not plate:
-        raise HTTPException(status_code=404, detail="license plate not found for route")
-
-    # 2) Latest car position (ttcarimport)
-    pos = MySQL_Doing.run(
-        f"""
-        SELECT car_licence AS plate, X, Y, Speed, Deg, acc, rcv_dt
-        FROM ttcarimport
-        WHERE car_licence = '{plate.replace("'", "''")}'
-        ORDER BY seq DESC
-        LIMIT 1
-        """
-    )
-
-    if not pos or (hasattr(pos, "empty") and pos.empty):
-        raise HTTPException(status_code=404, detail="car position not found")
-
-    if hasattr(pos, "to_dict"):
-        p = pos.to_dict("records")[0]
-    else:
-        p = pos[0]
-
-    # Note: follow convention Y=lat, X=lng used in Get_GIS_About
-    try:
-        car_lng = float(p.get("X"))
-        car_lat = float(p.get("Y"))
-    except Exception:
-        car_lng = None
-        car_lat = None
-
-    # 3) Stops for this route and direction
-    stops = MySQL_Doing.run(
-        f"""
-        SELECT
-          CAST(route_id AS SIGNED) AS route_id,
-          direction,
-          stop_name,
-          CAST(latitude AS DECIMAL(12,8)) AS latitude,
-          CAST(longitude AS DECIMAL(12,8)) AS longitude,
-          CAST(stop_order AS SIGNED) AS stop_order,
-          station_id
-        FROM bus_route_stations
-        WHERE route_id = {int(route_id)}
-          AND direction = '{direction.replace("'", "''")}'
-        ORDER BY stop_order
-        """
-    )
-
-    if not stops or (hasattr(stops, "empty") and stops.empty):
-        raise HTTPException(status_code=404, detail="stops not found for route/direction")
-
-    import numpy as _np
-
-    def _haversine_np(lat1, lon1, lat2, lon2):
-        R = 6371000.0
-        lat1 = _np.radians(lat1); lon1 = _np.radians(lon1)
-        lat2 = _np.radians(lat2); lon2 = _np.radians(lon2)
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
-        a = _np.sin(dlat/2.0)**2 + _np.cos(lat1) * _np.cos(lat2) * _np.sin(dlon/2.0)**2
-        return 2 * R * _np.arcsin(_np.sqrt(a))
-
-    if hasattr(stops, "to_dict"):
-        sdf = stops
-    else:
-        sdf_cols = ["route_id", "direction", "stop_name", "latitude", "longitude", "stop_order", "station_id"]
-        sdf = pd.DataFrame(stops, columns=sdf_cols)
-
-    dist = _haversine_np(
-        float(car_lat), float(car_lng),
-        sdf["latitude"].astype(float).to_numpy(),
-        sdf["longitude"].astype(float).to_numpy()
-    )
-    idx = int(_np.argmin(dist))
-    nearest = sdf.iloc[idx]
-
-    return {
-        "route_id": int(route_id),
-        "direction": direction,
-        "license_plate": plate,
-        "car_lon": car_lng,
-        "car_lat": car_lat,
-        "rcv_dt": p.get("rcv_dt"),
-        "nearest_stop_name": str(nearest.get("stop_name") or ""),
-        "nearest_distance_m": float(dist[idx]),
-        "nearest_stop_order": int(nearest.get("stop_order") or 0),
-        "total_stops": int(len(sdf)),
-        "station_id": (int(nearest.get("station_id")) if pd.notna(nearest.get("station_id")) else None),
-    }
+    print(Results["route"].tolist())
+    Results = MySQL_Doing.run("""
+    SELECT c.route, c.X, c.Y, c.direction, c.Current_Loaction
+    FROM car_backup c
+    JOIN (
+        SELECT route, MAX(seq) AS max_seq
+        FROM car_backup
+        WHERE route IN ('1', '2', '3')
+        GROUP BY route
+    ) t ON c.route = t.route AND c.seq = t.max_seq;
+    """)
+    return Results
 
 @api.post("/reservation", tags=["Client"], summary="送出預約")
 def push_reservation(req: Define.ReservationReq):
@@ -651,11 +355,8 @@ def show_reservations(user_id: str):
     sql = f"""
     SELECT reservation_id, user_id, booking_time, booking_number, 
            booking_start_station_name, booking_end_station_name,
-           review_status, payment_status, dispatch_status
-    FROM reservation
-    WHERE user_id = '{user_id}'
-      AND (review_status IS NULL OR review_status <> 'canceled')
-    ORDER BY booking_time DESC
+           review_status, payment_status
+    FROM reservation where user_id = '{user_id}'
     """
     results = MySQL_Doing.run(sql)
 
@@ -703,122 +404,6 @@ def Cancled_reservation(req: Define.CancelReq):
     """
     Results = MySQL_Doing.run(sql)
     return {"status": "success", "sql": Results}
-
-@api.get("/privacy", tags=["Client"], summary="privacy")
-async def get_privacy():
-    gist_url = "https://gist.githubusercontent.com/Cody20179/ef17eeb9e2880a3a677bb5c74232c003/raw/gistfile1.txt"
-    resp = requests.get(gist_url)
-    return {"content": resp.text}
-
-@api.post("/car_backup_insert", tags=["Car"], summary="插入車輛備份資料")
-def insert_car_backup(data: Define.CarBackupInsert):
-    # 若未提供 rcv_dt，使用伺服器當前時間
-    rcv_dt = data.rcv_dt or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    acc_value = "b'1'" if data.acc else "b'0'" if data.acc is not None else "NULL"
-
-    sql = f"""
-    INSERT INTO car_backup (
-        rcv_dt, car_licence, Gpstime, X, Y, Speed, Deg, acc, route, direction, Current_Loaction
-    ) VALUES (
-        '{rcv_dt}', '{data.car_licence}', '{data.Gpstime}',
-        {data.X}, {data.Y}, {data.Speed}, {data.Deg},
-        {acc_value},
-        {f"'{data.route}'" if data.route else "NULL"},
-        {f"'{data.direction}'" if data.direction else "NULL"},
-        {f"'{data.Current_Loaction}'" if data.Current_Loaction else "NULL"}
-    );
-    """
-
-    try:
-        MySQL_Doing.run(sql)
-        return {"status": "success", "rcv_dt": rcv_dt, "sql": sql}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/qrcode/{reservation_id}", tags=["Client"], summary="取得預約上車 QRCode（PNG）")
-def qrcode_reservation(reservation_id: int, save: bool = False):
-    """
-    產出一張 PNG QRCode 並回傳。
-    內容： reservation_id|user_id|line_id
-    """
-    rid = int(str(reservation_id).strip())
-
-    # 查 DB：JOIN users 拿 line_id
-    sql = f"""
-        SELECT r.reservation_id, r.user_id, u.line_id, r.payment_status, r.review_status
-        FROM reservation AS r
-        LEFT JOIN users AS u ON r.user_id = u.user_id
-        WHERE r.reservation_id = {rid}
-        LIMIT 1;
-    """
-    row = MySQL_Doing.run(sql)
-
-    if row is None or len(row) == 0:
-        raise HTTPException(status_code=404, detail=f"reservation {rid} not found")
-
-    rec = row.iloc[0].to_dict() if hasattr(row, "iloc") else row[0]
-
-    # 組合 QR 內容
-    uid = rec.get("user_id")
-    lid = rec.get("line_id", "")
-    payload = f"{rid}|{uid}|{lid}"
-
-    import qrcode
-    from io import BytesIO
-    img = qrcode.make(payload)
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-
-    # 不落地 → 直接回傳
-    return StreamingResponse(buf, media_type="image/png")
-
-@app.post("/qrcode/verify", tags=["Client"], summary="驗證 QRCode 訂單")
-def verify_qrcode(data: dict = Body(...)):
-    """
-    驗證掃描的 QRCode 字串是否有效。
-    內容格式： reservation_id|user_id|line_id
-    回傳：是否有效 + 訂單資訊
-    """
-    qr_text = str(data.get("qrcode", "")).strip()
-    if not qr_text or "|" not in qr_text:
-        raise HTTPException(status_code=400, detail="Invalid QRCode content")
-
-    parts = qr_text.split("|")
-    if len(parts) < 3:
-        raise HTTPException(status_code=400, detail="QRCode format error")
-
-    reservation_id, user_id, line_id = parts[0], parts[1], parts[2]
-
-    # 查詢 DB，確認三者一致 & 已付款
-    sql = f"""
-        SELECT r.reservation_id, r.user_id, u.line_id, r.payment_status, r.review_status, r.dispatch_status
-        FROM reservation AS r
-        LEFT JOIN users AS u ON r.user_id = u.user_id
-        WHERE r.reservation_id = {reservation_id}
-          AND r.user_id = {user_id}
-          AND u.line_id = '{line_id}'
-        LIMIT 1;
-    """
-    row = MySQL_Doing.run(sql)
-    if row is None or len(row) == 0:
-        raise HTTPException(status_code=404, detail="QRCode verification failed")
-
-    rec = row.iloc[0].to_dict() if hasattr(row, "iloc") else row[0]
-    paid = str(rec.get("payment_status", "")).lower() == "paid"
-    assigned = str(rec.get("dispatch_status", "")).lower() == "assigned"
-
-    return {
-        "valid": paid and assigned,
-        "reservation_id": rec["reservation_id"],
-        "user_id": rec["user_id"],
-        "line_id": rec.get("line_id"),
-        "payment_status": rec["payment_status"],
-        "dispatch_status": rec["dispatch_status"],
-        "review_status": rec["review_status"],
-        "message": "驗證通過" if paid and assigned else "尚未付款或未派車"
-    }
 
 # === 使用者更新資訊 ===
 @api.post("/users/update_mail", tags=["Users"], summary="更新使用者Email")
@@ -967,46 +552,40 @@ async def me(request: Request):
         "last_login": row["last_login"],
     }
 
-# ====================================
-# 🧾 建立付款連結
-# ====================================
-@app.post("/payments", response_model=CreatePaymentOut)
+# ====== 建立付款連結（正式） ======
+@app.post("/payments", response_model=CreatePaymentOut, tags = ["Pay"], summary="建立付款連結")
 def create_payment(body: CreatePaymentIn):
-    amt = Decimal(body.amount)
+    # 驗證 amount 為正數（避免浮點誤差，使用 Decimal）
+    try:
+        amt = Decimal(body.amount)
+    except InvalidOperation:
+        raise HTTPException(status_code=400, detail="amount 格式錯誤")
+
     if amt <= 0 or amt != amt.quantize(Decimal("1")):
-        raise HTTPException(status_code=400, detail="amount 必須為正整數")
+        # 雷門若要求整數元，這裡限制為整數金額；若允許小數請調整 quantize
+        raise HTTPException(status_code=400, detail="amount 必須為正整數（元）")
 
     payload = {
-        "set_price": str(amt),
-        "pos_id": "01",
-        "pos_order_number": body.order_number,
-        "callback_url": f"{PUBLIC_BASE}/callback",
-        "return_url": f"{PUBLIC_BASE}/return",
-        "nonce": secrets.token_hex(8),  # 加這行
+        "merchant_id": MERCHANT_ID,
+        "terminal_id": TERMINAL_ID,
+        "store_code":  STORE_CODE,
+        "set_price": str(amt),                     # 金額（元）
+        "pos_order_number": body.order_number,     # 訂單編號
+        "callback_url": f"{PUBLIC_BASE}/callback", # 供雷門伺服器回呼
+        "return_url":   f"{PUBLIC_BASE}/return"    # 供使用者導回顯示頁
     }
 
-    # === AES 加密 ===
-    transaction_data = encrypt_aes(payload)
-
-    # === SHA256 雜湊（注意：針對未 URL encode 的原始 Base64 字串）===
+    json_str = json.dumps(payload, separators=(',', ':'))
+    transaction_data = encrypt_aes(json_str, KEY, IV)
     hash_digest = hashlib.sha256(transaction_data.encode("utf-8")).hexdigest()
 
-    print("原始 JSON:", payload)
-    print("加密後 TransactionData:", transaction_data)
-    print("本地算出的 HashDigest:", hash_digest)
-
-    # === URL encode 後組成最終網址 ===
-    full_url = (
-        f"https://{LAYMON}/calc/pay_encrypt/{STORE_CODE}"
-        f"?TransactionData={quote(transaction_data)}&HashDigest={hash_digest}"
-    )
+    url = f"https://{LAYMON}/calc/pay_encrypt/{STORE_CODE}"
+    full_url = f"{url}?TransactionData={quote(transaction_data)}&HashDigest={hash_digest}"
 
     return CreatePaymentOut(pay_url=full_url)
 
-# ====================================
-# 🔁 雷門 callback（伺服器對伺服器）
-# ====================================
-@app.post("/callback")
+# ====== 雷門回傳 callback（伺服器對伺服器） ======
+@app.post("/callback", tags = ["Pay"])
 async def callback(request: Request):
     body = await request.json()
     enc_data = body.get("TransactionData")
@@ -1016,27 +595,23 @@ async def callback(request: Request):
         raise HTTPException(status_code=400, detail="缺少必要欄位")
 
     # 驗證 hash
-    local_hash = hashlib.sha256(enc_data.encode("utf-8")).hexdigest()
-    if local_hash != hash_digest:
+    if hashlib.sha256(enc_data.encode("utf-8")).hexdigest() != hash_digest:
         raise HTTPException(status_code=400, detail="Hash 驗證失敗")
 
+    # 解密資料
     try:
-        data = decrypt_aes(enc_data)
-        order_number = data.get("pos_order_number")
-        if order_number:
-            sql = f"UPDATE reservation SET payment_status = 'paid' WHERE reservation_id = '{order_number}'"
-            MySQL_Doing.run(sql)
-
-        # return {"status": "ok", "data": data}
+        decrypted = decrypt_aes(enc_data, KEY, IV)
+        data = json.loads(decrypted)
+        # TODO: 在此更新你的訂單狀態（付款成功/失敗等），依雷門實際回傳欄位解讀
+        return {"status": "ok", "data": data}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"解密失敗: {e}")
 
-# ====================================
-# 🌐 使用者導回頁
-# ====================================
-@app.get("/return")
+# ====== 使用者導回頁（前端顯示用） ======
+@app.get("/return", tags = ["Pay"])
 def return_page():
-    return RedirectResponse(url=f"{PUBLIC_BASE}?tab=reservations")
+    # 你可以改成回傳 HTML 或重導到你的前端頁面
+    return {"message": "付款流程結束，這裡顯示給使用者看"}
 
 # === 前端靜態檔案服務 ===
 app.include_router(api)

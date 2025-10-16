@@ -95,8 +95,22 @@ export default function RoutesPage() {
             className="route-card"
             role="button"
             tabIndex={0}
-            onClick={() => setSelected(r)}
-            onKeyDown={(e) => e.key === 'Enter' && setSelected(r)}
+            
+            onClick={() => {
+              console.log(
+                `[使用者選擇路線] ID: ${r.id || r.route_id || '(未知)'}, 名稱: ${r.name || '(未命名)'}, 方向: ${r.direction || '(未指定)'}`
+              )
+              setSelected(r)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                console.log(
+                  `[使用者選擇路線] ID: ${r.id || r.route_id || '(未知)'}, 名稱: ${r.name || '(未命名)'}, 方向: ${r.direction || '(未指定)'}`
+                )
+                setSelected(r)
+              }
+            }}
+
           >
             <div className="route-left">
               <div className="route-title">{r.name}</div>

@@ -162,6 +162,14 @@ html,body,#root{height:100%;margin:0;}
   box-shadow: var(--shadow);
 }
 
+/* Disabled buttons: 降低透明度並停用互動 */
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 /* Buttons color */
 .btn-blue{
   background:var(--pantone-blue);

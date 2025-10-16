@@ -1,6 +1,6 @@
-﻿uvicorn Money:app --host 0.0.0.0 --port 7001 --reload --ssl-keyfile "D:/ssl/hualenbus.labelnine.app-key.pem" --ssl-certfile "D:/ssl/hualenbus.labelnine.app-chain.pem"
+uvicorn Money:app --host 0.0.0.0 --port 7001 --reload --ssl-keyfile "D:/ssl/hualenbus.labelnine.app-key.pem" --ssl-certfile "D:/ssl/hualenbus.labelnine.app-chain.pem"
 uvicorn Server:app --host 0.0.0.0 --port 8700 --reload --ssl-keyfile "D:/ssl/hualenbus.labelnine.app-key.pem" --ssl-certfile "D:/ssl/hualenbus.labelnine.app-chain.pem"
-uvicorn Server:app --host 0.0.0.0 --port 8700 --reload --ssl-keyfile "D:/ssl/lab109.257895412.xyz-key.pem" --ssl-certfile "D:/ssl/lab109.257895412.xyz-chain.pem"
+uvicorn Server:app --host 0.0.0.0 --port 8700 --reload --ssl-keyfile "E:/ssl/lab109.257895412.xyz-key.pem" --ssl-certfile "E:/ssl/lab109.257895412.xyz-chain.pem"
 # 🚌 H_Bus 專案環境部署指引
 
 本映像提供完整開發環境（Node.js + Python + FastAPI），  

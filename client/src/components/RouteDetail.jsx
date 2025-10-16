@@ -51,8 +51,7 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     async function loadCars() {
       try {
         const data = await getCarPositions()
-        console.log("[GIS_About] API 回傳資料:", data)
-        if (!cancelled) {
+        if (!cancelled && Array.isArray(data)) {
           setCars([...data])
           setTick((t) => t + 1)
         }
@@ -64,7 +63,7 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     const id = setInterval(() => {
       console.log("[GIS_About] 重新抓取車輛位置...")
       loadCars()
-    }, 5000)
+    }, 30000)
     return () => { cancelled = true; clearInterval(id) }
   }, [])
 
