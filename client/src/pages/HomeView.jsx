@@ -257,48 +257,51 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
         </div>
       </section>
 
-      <div className="arrival-header">
-        <div className="arrival-header-title">當前車次所在站點</div>
-        <div className="arrival-header-timer">
-          {searchOpen || countdown === null
-            ? '自動更新中'
-            : <>自動更新倒數 <small>{countdown}</small> 秒</>}
+      {/* 外層白底父容器 */}
+      <div className="arrival-container">
+        <div className="arrival-header">
+          <div className="arrival-header-title">當前車次所在站點</div>
+          <div className="arrival-header-timer">
+            {searchOpen || countdown === null
+              ? '自動更新中'
+              : <>自動更新倒數 <small>{countdown}</small> 秒</>}
+          </div>
+        </div>
+
+        <div className="arrival-list">
+          {loading && <div className="muted small">載入中</div>}
+          {error && <div className="muted small" style={{ color: '#c25' }}>{error}</div>}
+          {!loading && arrivals.map((a) => (
+            <div
+              key={a.key}
+              className={`arrival-item arrival-item--tight ${pressedKey === a.key ? 'is-pressed' : ''}`}
+              role="button"
+              tabIndex={0}
+              onPointerDown={() => setPressedKey(a.key)}
+              onPointerUp={() => setPressedKey(null)}
+              onPointerCancel={() => setPressedKey(null)}
+              onPointerLeave={() => setPressedKey(null)}
+              onClick={() => navigate(`/routes/${a.id}`)}
+              onKeyDown={(e) => e.key === 'Enter' && navigate(`/routes/${a.id}`)}
+            >
+              <div className="arrival-left arrival-left--nowrap">
+                <div className="route-line">
+                  <div className="route-name route-name--wrap">
+                    {a.route} {a.directionLabel}
+                  </div>
+                </div>
+              </div>
+              <div className="arrival-right">
+                <div className="eta eta--right">{a.stop}</div>
+              </div>
+            </div>
+          ))}
+          {!loading && arrivals.length === 0 && !error && (
+            <div className="muted small">目前沒有車次位置資訊</div>
+          )}
         </div>
       </div>
 
-      <div className="arrival-list">
-        {loading && <div className="muted small">載入中</div>}
-        {error && <div className="muted small" style={{ color: '#c25' }}>{error}</div>}
-        {!loading && arrivals.map((a) => (
-          <div
-            key={a.key}
-            className={`arrival-item arrival-item--tight ${pressedKey === a.key ? 'is-pressed' : ''}`}
-            role="button"
-            tabIndex={0}
-            onPointerDown={() => setPressedKey(a.key)}
-            onPointerUp={() => setPressedKey(null)}
-            onPointerCancel={() => setPressedKey(null)}
-            onPointerLeave={() => setPressedKey(null)}
-            onClick={() => navigate(`/routes/${a.id}`)}
-            onKeyDown={(e) => e.key === 'Enter' && navigate(`/routes/${a.id}`)}
-          >
-          <div className="arrival-left arrival-left--nowrap">
-            <div className="route-line">
-              <div className="route-name route-name--wrap">
-                {a.route} {a.directionLabel}
-              </div>
-            </div>
-          </div>
-          <div className="arrival-right">
-            <div className="eta eta--right">{a.stop}</div>
-          </div>
-
-          </div>
-        ))}
-        {!loading && arrivals.length === 0 && !error && (
-          <div className="muted small">目前沒有車次位置資訊</div>
-        )}
-      </div>
 
       <MyReservations user={user} filterExpired={true} />
       {/* 服務公告 */}
