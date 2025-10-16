@@ -19,7 +19,8 @@ from pydantic import BaseModel, Field
 import pandas as pd
 import redis
 import httpx
-
+import qrcode
+from io import BytesIO
 # ====================================
 # ✅ 標準庫
 # ====================================
@@ -674,11 +675,20 @@ def qrcode_reservation(reservation_id: int, save: bool = False):
     # 組合 QR 內容
     uid = rec.get("user_id")
     lid = rec.get("line_id", "")
-    payload = f"{rid}|{uid}|{lid}"
 
-    import qrcode
-    from io import BytesIO
-    img = qrcode.make(payload)
+    # 組合原始內容
+    raw_data = {
+        "reservation_id": rid,
+        "user_id": uid,
+        "line_id": lid,
+    }
+
+    # 使用現有 AES 加密
+    enc_text = encrypt_aes(raw_data)
+
+    # 產生加密 QR Code
+    img = qrcode.make(enc_text)
+
     buf = BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
@@ -686,52 +696,28 @@ def qrcode_reservation(reservation_id: int, save: bool = False):
     # 不落地 → 直接回傳
     return StreamingResponse(buf, media_type="image/png")
 
-@app.post("/qrcode/verify", tags=["Client"], summary="驗證 QRCode 訂單")
-def verify_qrcode(data: dict = Body(...)):
-    """
-    驗證掃描的 QRCode 字串是否有效。
-    內容格式： reservation_id|user_id|line_id
-    回傳：是否有效 + 訂單資訊
-    """
+@api.post("/qrcode/verify", tags=["Client"], summary="驗證 QRCode")
+def verify_qrcode(data: dict):
     qr_text = str(data.get("qrcode", "")).strip()
-    if not qr_text or "|" not in qr_text:
-        raise HTTPException(status_code=400, detail="Invalid QRCode content")
+    if not qr_text:
+        raise HTTPException(status_code=400, detail="Empty QRCode")
 
-    parts = qr_text.split("|")
-    if len(parts) < 3:
-        raise HTTPException(status_code=400, detail="QRCode format error")
+    try:
+        # 嘗試解密
+        decrypted = decrypt_aes(qr_text, KEY, IV)
+        obj = json.loads(decrypted)
 
-    reservation_id, user_id, line_id = parts[0], parts[1], parts[2]
+        rid = obj.get("reservation_id")
+        uid = obj.get("user_id")
+        lid = obj.get("line_id")
 
-    # 查詢 DB，確認三者一致 & 已付款
-    sql = f"""
-        SELECT r.reservation_id, r.user_id, u.line_id, r.payment_status, r.review_status, r.dispatch_status
-        FROM reservation AS r
-        LEFT JOIN users AS u ON r.user_id = u.user_id
-        WHERE r.reservation_id = {reservation_id}
-          AND r.user_id = {user_id}
-          AND u.line_id = '{line_id}'
-        LIMIT 1;
-    """
-    row = MySQL_Doing.run(sql)
-    if row is None or len(row) == 0:
-        raise HTTPException(status_code=404, detail="QRCode verification failed")
+        if not rid or not uid:
+            raise HTTPException(status_code=400, detail="Missing fields")
 
-    rec = row.iloc[0].to_dict() if hasattr(row, "iloc") else row[0]
-    paid = str(rec.get("payment_status", "")).lower() == "paid"
-    assigned = str(rec.get("dispatch_status", "")).lower() == "assigned"
+        return {"status": "success", "data": obj}
 
-    return {
-        "valid": paid and assigned,
-        "reservation_id": rec["reservation_id"],
-        "user_id": rec["user_id"],
-        "line_id": rec.get("line_id"),
-        "payment_status": rec["payment_status"],
-        "dispatch_status": rec["dispatch_status"],
-        "review_status": rec["review_status"],
-        "message": "驗證通過" if paid and assigned else "尚未付款或未派車"
-    }
-
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"QRCode decrypt failed: {e}")
 @api.get("/announcements", tags=["Client"], summary="取得服務公告列表")
 def get_announcements():
     sql = "SELECT id, title, content, created_at FROM announcements ORDER BY created_at DESC"
