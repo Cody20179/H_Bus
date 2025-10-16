@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { getRouteStops } from '../services/api'
-import { getCarPositions } from '../services/api'
+import { getRouteStops, getCarPositions } from '../services/api'
+import debounce from 'lodash.debounce'
+import dayjs from "dayjs"
 
 export default function RouteDetail({ route, onClose, highlightStop }) {
   const [selectedDir, setSelectedDir] = useState('去程')
@@ -10,6 +11,8 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
   const [viewMode, setViewMode] = useState('list')
   const isStatic = route.source === 'static'
   const isSingleDirection = route.direction && route.direction.includes('單向')
+  const [loadingCars, setLoadingCars] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [tick, setTick] = useState(0)
   const [cars, setCars] = useState([])
 
@@ -18,6 +21,46 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     const id = setInterval(() => setTick((t) => (t + 1) % 1_000_000), 15000)
     return () => clearInterval(id)
   }, [])
+
+  // 一進頁：等站點與車輛資料都載入完才解除初始載入
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadAll() {
+      try {
+        setInitialLoading(true)
+        setLoading(true)
+        setLoadingCars(true)
+        setError(null)
+
+        // 同步抓取站點與車輛
+        const [stopData, carData] = await Promise.all([
+          getRouteStops(route.id, selectedDir),
+          getCarPositions()
+        ])
+
+        if (!cancelled) {
+          setStops(stopData || [])
+          setCars(carData || [])
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("初始載入失敗:", err)
+          setError("無法載入資料")
+          setStops([])
+        }
+      } finally {
+        if (!cancelled) {
+          setInitialLoading(false)   // ✅ 真正載完才解除
+          setLoading(false)
+          setLoadingCars(false)
+        }
+      }
+    }
+
+    loadAll()
+    return () => { cancelled = true }
+  }, [route, selectedDir])
 
   // 抓取站點
   useEffect(() => {
@@ -48,24 +91,33 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
   // 抓取車輛位置
   useEffect(() => {
     let cancelled = false
-    async function loadCars() {
+    const [loadingCars, setLoadingCars] = [setLoading, setLoading] // reuse loading state if you already have it
+
+    // 防止太頻繁呼叫 API（3 秒內多次只會執行一次）
+    const fetchCars = debounce(async () => {
       try {
+        setLoading(true)
         const data = await getCarPositions()
-        console.log("[GIS_About] API 回傳資料:", data)
         if (!cancelled) {
           setCars([...data])
           setTick((t) => t + 1)
         }
       } catch (e) {
-        console.warn("載入即時車輛位置失敗", e)
+        if (!cancelled) console.warn('載入即時車輛位置失敗', e)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
+    }, 3000)
+
+    // 初次載入 + 每 15 秒刷新
+    fetchCars()
+    const id = setInterval(fetchCars, 30000)
+
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      fetchCars.cancel()
     }
-    loadCars()
-    const id = setInterval(() => {
-      console.log("[GIS_About] 重新抓取車輛位置...")
-      loadCars()
-    }, 5000)
-    return () => { cancelled = true; clearInterval(id) }
   }, [])
 
   // 靜態站點
@@ -93,7 +145,9 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
       longitude: Number(s.longitude ?? s['去程經度'] ?? s['經度']),
       etaFromStart: s.etaFromStart ?? s['首站到此站時間'] ?? null,
       etaToHere: s.etaToHere ?? null,
+      schedule: s.schedule || s['schedule'] || s['時刻表'] || "", // 👈 新增這行
     }))
+
 
     const car = cars.find(c =>
       String(c.route) === String(route.id) ||
@@ -120,14 +174,24 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     let currentIndex = unified.findIndex(s => s.name === car.currentLocation)
 
     return unified.map((s, idx) => {
-      if (idx < currentIndex) {
-        return { ...s, status: { label: "已過站", tone: "muted" } }
-      } else if (idx === currentIndex) {
+      const now = dayjs()
+      const scheduleStr = s.schedule || s.full_schedule || ""
+      const times = scheduleStr
+        .split(",")
+        .map((t) => dayjs(t.trim(), "HH:mm"))
+        .filter((t) => t.isValid())
+
+      const next = times.find((t) => t.isAfter(now)) || times[times.length - 1]
+      const nextTimeLabel = next ? next.format("HH:mm") : "-"
+
+      if (idx === currentIndex) {
         return { ...s, status: { label: "到站中", tone: "green" } }
       } else {
-        return { ...s, status: { label: `${s.etaFromStart ?? '-'} 分鐘`, tone: "blue" } }
+        return { ...s, status: { label: `下一班時間 ${nextTimeLabel}`, tone: "blue" } }
       }
+
     })
+
   }, [isStatic, list, stops, cars, route.id, selectedDir])
 
   const staticStopsForMap = useMemo(() => {
@@ -143,7 +207,18 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
       .sort((a, b) => (a.stop_order ?? 0) - (b.stop_order ?? 0))
   }, [isStatic, list])
 
+  if (initialLoading) {
+    return (
+      <div className="route-detail-overlay" role="dialog" aria-modal="true">
+        <div className="route-detail-panel" style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'60vh' }}>
+          <div className="spinner" />
+          <div className="muted small" style={{ marginTop:8 }}>載入中…</div>
+        </div>
+      </div>
+    )
+  }
   return (
+    
     <div className="route-detail-overlay" role="dialog" aria-modal="true">
       <div className="route-detail-panel">
         <div className="panel-head">
@@ -187,6 +262,13 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
               <div className="stops-list">
                 {loading && <div className="muted">載入中…</div>}
                 {error && <div className="muted" style={{ color: '#c25' }}>{error}</div>}
+                {loading && (
+                  <div className="spinner-container">
+                    <div className="spinner" />
+                    <span className="muted small">載入車輛位置中…</span>
+                  </div>
+                )}
+
                 {displayStops.map((s, idx) => {
                 const isHighlight =
                   highlightStop !== null &&

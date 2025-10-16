@@ -154,7 +154,21 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
           try {
             const res = await fetch('/api/GIS_AllFast')
             const json = await res.json()
-            const cars = Array.isArray(json.data) ? json.data : []
+
+            let cars = []
+            if (Array.isArray(json.data)) {
+              cars = json.data
+            } else if (json && typeof json === 'object' && json.route) {
+              const keys = Object.keys(json.route || {})
+              cars = keys.map((k) => ({
+                route: json.route[k],
+                X: json.Y?.[k] ?? null, // 這裡反過來取
+                Y: json.X?.[k] ?? null, // 這裡反過來取
+                direction: json.direction?.[k] ?? '',
+                Current_Loaction: json.Current_Loaction?.[k] ?? ''
+              }))
+            }
+
             const pickCur = routes.slice(0, 3)
             const normDir = (d) => {
               const t = String(d || '').trim()

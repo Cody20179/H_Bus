@@ -24,7 +24,27 @@ body, html, #root, .page-root, .container {
   color: var(--text);
 }
 
+.spinner-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 8px 0;
+  gap: 8px;
+}
 
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #ccc;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
 
 .card, .card-title, .card-body, .btn, .search-input, .app-title, .subtitle, .route-name, .arrival-item, .font-size-label, .font-size-select, .route-title, .route-desc, .route-btn, .route-list, .route-list *, .arrival-list, .arrival-list *, .reservation-row, .res-time, .res-main, .res-route, .res-meta, .res-count, .res-count-num, .res-count-label, .announcement, .announce-item, .link-btn, .bottom-nav, .nav-item, .nav-item.active, .route-card, .route-card *, .route-sub, .profile-section, .profile-section *, .item, .item-col, .item-desc, .badge, .auth-title, .auth-subtitle, .modal-title, .modal-body, .help-title, .help-sub, .meta-label, .meta-value, .status-chip, .btn-pay-manage, .stop-name, .stop-badge, .phone-pill, .chip, .chip.active {

@@ -316,28 +316,52 @@ def All_Route():
     records = df.where(pd.notnull(df), None).to_dict(orient="records")
     return records
 
-@api.post("/Route_Stations", response_model=List[Define.StationOut], tags=["Client"], summary="所有站點")
+@api.post("/Route_Stations",
+    response_model=List[Define.StationOut],
+    tags=["Client"],
+    summary="所有站點"
+)
 def get_route_stations(q: Define.RouteStationsQuery):
+    # === 建立查詢語句 ===
     sql = "SELECT * FROM bus_route_stations WHERE route_id = %s"
     params = [q.route_id]
     if q.direction:
         sql += " AND direction = %s"
         params.append(q.direction)
 
+    # === 嘗試查詢資料 ===
     try:
         rows = MySQL_Doing.run(sql, params)
     except TypeError:
+        # 某些自定義封裝不支援 %s 語法時 fallback
         if q.direction:
-            rows = MySQL_Doing.run(f"SELECT * FROM bus_route_stations WHERE route_id = {int(q.route_id)} AND direction = '{q.direction}'")
+            rows = MySQL_Doing.run(
+                f"SELECT * FROM bus_route_stations "
+                f"WHERE route_id = {int(q.route_id)} AND direction = '{q.direction}'"
+            )
         else:
-            rows = MySQL_Doing.run(f"SELECT * FROM bus_route_stations WHERE route_id = {int(q.route_id)}")
+            rows = MySQL_Doing.run(
+                f"SELECT * FROM bus_route_stations WHERE route_id = {int(q.route_id)}"
+            )
 
+    # === 取出欄位結構 ===
     df_cols = MySQL_Doing.run("SHOW COLUMNS FROM bus_route_stations")
-    columns = df_cols["Field"].tolist()
-    df = pd.DataFrame(rows, columns=columns)
+    if isinstance(df_cols, pd.DataFrame):
+        columns = df_cols["Field"].tolist()
+    elif isinstance(df_cols, list) and len(df_cols) > 0:
+        if isinstance(df_cols[0], dict):
+            columns = [c["Field"] for c in df_cols]
+        else:
+            columns = [c[0] for c in df_cols]
+    else:
+        columns = []
 
+    # === 組成 DataFrame ===
+    df = pd.DataFrame(rows, columns=columns)
     if df.empty:
         return []
+
+    # === 欄位對應與格式轉換 ===
     col_map = {
         "station_name": "stop_name",
         "stop_name": "stop_name",
@@ -345,29 +369,98 @@ def get_route_stations(q: Define.RouteStationsQuery):
         "eta_from_start": "eta_from_start",
         "order_no": "stop_order",
         "seq": "stop_order",
+        "schedule": "schedule",
     }
     df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
-    if "latitude" in df.columns:
-        df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
-    if "longitude" in df.columns:
-        df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
-    if "eta_from_start" in df.columns:
-        df["eta_from_start"] = pd.to_numeric(df["eta_from_start"], errors="coerce").astype("Int64")
-    if "stop_order" in df.columns:
-        df["stop_order"] = pd.to_numeric(df["stop_order"], errors="coerce").astype("Int64")
+    # 數值轉換
+    for col in ["latitude", "longitude", "eta_from_start", "stop_order"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # 時間轉換
     if "created_at" in df.columns:
-        df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce") \
-            .apply(lambda x: x.to_pydatetime() if pd.notnull(x) else None)
+        df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce").apply(
+            lambda x: x.to_pydatetime() if pd.notnull(x) else None
+        )
+
+    # === 保留需要的欄位 ===
     desired_cols = [
-        "route_id", "route_name", "direction", "stop_name",
-        "latitude", "longitude", "eta_from_start", "stop_order", "created_at", "schedule"
+        "station_id",
+        "route_id",
+        "route_name",
+        "direction",
+        "stop_name",
+        "latitude",
+        "longitude",
+        "eta_from_start",
+        "stop_order",
+        "schedule",
+        "address",
+        "status",
+        "created_at",
     ]
     keep_cols = [c for c in desired_cols if c in df.columns]
     df = df[keep_cols]
+
+    # === 轉換為 JSON 物件 ===
     records = df.where(pd.notnull(df), None).to_dict(orient="records")
     data: List[Define.StationOut] = [Define.StationOut(**r) for r in records]
     return data
+
+@api.get("/Route_ScheduleTime", tags=["Client"], summary="取得路線時刻表（含下一班時間）")
+def get_route_schedule_time(route_id: int, direction: str = None):
+    """
+    根據當前時間，為每個站點回傳下一班時間。
+    e.g. /api/Route_ScheduleTime?route_id=1&direction=去程
+    """
+    sql = f"SELECT route_id, direction, stop_name, schedule FROM bus_route_stations WHERE route_id = {route_id}"
+    if direction:
+        sql += f" AND direction = '{direction}'"
+
+    rows = MySQL_Doing.run(sql)
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        return {"status": "success", "data": []}
+
+    now = datetime.now().time()  # 當前時間（只取時分秒）
+    results = []
+
+    for _, row in df.iterrows():
+        schedule_str = str(row.get("schedule") or "").strip()
+        stop_name = row.get("stop_name")
+
+        if not schedule_str:
+            results.append({"stop_name": stop_name, "next_time": None})
+            continue
+
+        # 拆成時間清單
+        times = []
+        for t in schedule_str.split(","):
+            try:
+                times.append(datetime.strptime(t.strip(), "%H:%M").time())
+            except ValueError:
+                pass
+
+        # 找出下一個班次
+        next_time = next((t for t in times if t > now), None)
+        if next_time is None and times:
+            # 如果都過了，就回最後一班
+            next_time = times[-1]
+
+        results.append({
+            "stop_name": stop_name,
+            "next_time": next_time.strftime("%H:%M") if next_time else None,
+            "full_schedule": schedule_str
+        })
+
+    return {
+        "status": "success",
+        "route_id": route_id,
+        "direction": direction,
+        "data": results
+    }
 
 @api.get("/yo_hualien", tags=["Client"], summary="行動遊花蓮")
 def yo_hualien():
