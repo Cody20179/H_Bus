@@ -68,6 +68,19 @@ export async function getRouteStops(routeId, direction) {
   return sorted
 }
 
+export async function getRouteScheduleTime(routeId, direction) {
+  const res = await fetch(`${BASE}/Route_ScheduleTime?route_id=${routeId}&direction=${encodeURIComponent(direction || '')}`, {
+    headers: { accept: 'application/json' },
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to load schedule time: ${res.status}`)
+  }
+
+  const data = await res.json()
+  // 後端格式是 { status, route_id, direction, data: [...] }
+  return Array.isArray(data.data) ? data.data : []
+}
+
 
 // Bulk: fetch all stops (both directions) for a route in one request
 export async function getRouteStopsBulk(routeId) {

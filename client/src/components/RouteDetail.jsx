@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getRouteStops, getCarPositions } from '../services/api'
+import { getRouteScheduleTime } from "../services/api"
 import debounce from 'lodash.debounce'
 import dayjs from "dayjs"
 
@@ -33,16 +34,9 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
         setLoadingCars(true)
         setError(null)
 
-        // 同步抓取站點與車輛
-        const [stopData, carData] = await Promise.all([
-          getRouteStops(route.id, selectedDir),
-          getCarPositions()
-        ])
-
-        if (!cancelled) {
-          setStops(stopData || [])
-          setCars(carData || [])
-        }
+      // 同步抓取站點與車輛
+      const carData = await getCarPositions()
+      if (!cancelled) setCars(carData || [])
       } catch (err) {
         if (!cancelled) {
           console.warn("初始載入失敗:", err)
@@ -64,29 +58,32 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
 
   // 抓取站點
   useEffect(() => {
-    if (!isStatic) {
-      let cancelled = false
-      setLoading(true)
-      setError(null)
-      getRouteStops(route.id, selectedDir)
-        .then((data) => {
-          if (!cancelled) setStops(data)
-        })
-        .catch((e) => {
-          if (!cancelled) {
-            setStops([])
-            setError('無法載入站點資料')
-            console.warn('Route stops fetch failed:', e)
-          }
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false)
-        })
-      return () => {
-        cancelled = true
-      }
-    }
-  }, [route, selectedDir, isStatic])
+    let cancelled = false
+    if (!route?.id) return
+
+    Promise.all([
+      getRouteStops(route.id, selectedDir),          // 原本的 /Route_Stations
+      getRouteScheduleTime(route.id, selectedDir),   // 新的 /Route_ScheduleTime
+    ]).then(([stopsData, scheduleData]) => {
+      if (cancelled) return
+
+      // 以 stop_name 對應 schedule
+      const merged = stopsData.map(stop => {
+        const match = scheduleData.find(s => s.stop_name === stop.stopName)
+        return {
+          ...stop,
+          next_time: match?.next_time || null,
+          full_schedule: match?.full_schedule || null,
+        }
+      })
+
+      console.log("🚏 merged stops:", merged)
+      setStops(merged)
+    })
+
+    return () => { cancelled = true }
+  }, [route, selectedDir])
+
 
   // 抓取車輛位置
   useEffect(() => {
@@ -145,8 +142,11 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
       longitude: Number(s.longitude ?? s['去程經度'] ?? s['經度']),
       etaFromStart: s.etaFromStart ?? s['首站到此站時間'] ?? null,
       etaToHere: s.etaToHere ?? null,
-      schedule: s.schedule || s['schedule'] || s['時刻表'] || "", // 👈 新增這行
+      schedule: s.schedule || s['schedule'] || s['時刻表'] || "",
+      next_time: s.next_time || s['next_time'] || null,          // 👈 新增這兩行
+      full_schedule: s.full_schedule || s['full_schedule'] || "", // 👈
     }))
+
 
 
     const car = cars.find(c =>
@@ -187,8 +187,23 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
       if (idx === currentIndex) {
         return { ...s, status: { label: "到站中", tone: "green" } }
       } else {
-        return { ...s, status: { label: `下一班時間 ${nextTimeLabel}`, tone: "blue" } }
+        // 改用 next_time 或 full_schedule 動態判斷
+const nextLabel = s.next_time
+  ? s.next_time
+  : (() => {
+      const scheduleStr = s.full_schedule || s.schedule || ""
+      if (!scheduleStr) return null
+      const times = scheduleStr.split(",").map(t => dayjs(t.trim(), "HH:mm")).filter(t => t.isValid())
+      const now = dayjs()
+      const next = times.find(t => t.isAfter(now)) || times[times.length - 1]
+      return next ? next.format("HH:mm") : null
+    })()
+
+
+        const label = nextLabel ? `下一班時間 ${nextLabel}` : "下一班時間 -"
+        return { ...s, status: { label, tone: "blue" } }
       }
+
 
     })
 
