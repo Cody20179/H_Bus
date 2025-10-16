@@ -41,14 +41,14 @@ export default function MyReservations({ user, filterExpired = false }) {
         if (!cancelled) {
           setMyResv(data)
           // 🧾 中文化輸出至 console
-          console.log('🧾 訂單清單：')
-          data.forEach((r) => {
-            console.log(`編號：${r.reservation_id}`)
-            console.log(`審核狀態：${translateStatus(r.review_status)} | 付款狀態：${translateStatus(r.payment_status)} | 派車狀態：${translateStatus(r.dispatch_status)}`)
-            console.log(`出發：${r.booking_start_station_name} → 到達：${r.booking_end_station_name}`)
-            console.log(`預約人數：${r.booking_number} | 建立時間：${r.booking_time}`)
-            console.log('-------------------------------------')
-          })
+          // console.log('🧾 訂單清單：')
+          // data.forEach((r) => {
+          //   console.log(`編號：${r.reservation_id}`)
+          //   console.log(`審核狀態：${translateStatus(r.review_status)} | 付款狀態：${translateStatus(r.payment_status)} | 派車狀態：${translateStatus(r.dispatch_status)}`)
+          //   console.log(`出發：${r.booking_start_station_name} → 到達：${r.booking_end_station_name}`)
+          //   console.log(`預約人數：${r.booking_number} | 建立時間：${r.booking_time}`)
+          //   console.log('-------------------------------------')
+          // })
         }
       } catch (e) {
         if (!cancelled) setResvErr(String(e.message || e))
@@ -183,46 +183,47 @@ export default function MyReservations({ user, filterExpired = false }) {
             </div>
 
             <div className="modal-actions">
-              <button
-                className="btn btn-orange"
-                onClick={() => setCancelTarget(selectedResv)}
-              >
-                取消預約
-              </button>
+              {translateStatus(selectedResv.payment_status) !== '已付款' ? (
+                <>
+                  <button
+                    className="btn btn-orange"
+                    onClick={() => setCancelTarget(selectedResv)}
+                  >
+                    取消預約
+                  </button>
 
-              {/* ✅ 審核通過才允許付款 */}
-              {translateStatus(selectedResv.review_status) === '審核通過' ? (
-                <button
-                  className="btn btn-blue"
-                  onClick={async () => {
-                    try {
-                      const amount = String(selectedResv.booking_number * 10)
-                      const orderNumber = String(selectedResv.reservation_id)
-                      const confirmed = window.confirm('即將前往付款頁面，是否繼續？')
-                      if (!confirmed) return
-                      const resp = await fetch('/payments', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ amount, order_number: orderNumber }),
-                      })
-                      if (!resp.ok) throw new Error('付款連線失敗')
-                      const data = await resp.json()
-                      if (!data.pay_url) throw new Error('未回傳付款連結')
-                      window.location.href = data.pay_url
-                    } catch (err) {
-                      console.error(err)
-                      alert(err.message || '付款失敗')
-                    }
-                  }}
-                >
-                  付款
-                </button>
+                  {/* ✅ 審核通過才允許付款 */}
+                  {translateStatus(selectedResv.review_status) === '審核通過' ? (
+                    <button
+                      className="btn btn-blue"
+                      onClick={async () => {
+                        try {
+                          const amount = String(selectedResv.booking_number * 10)
+                          const orderNumber = String(selectedResv.reservation_id)
+                          const confirmed = window.confirm('即將前往付款頁面，是否繼續？')
+                          if (!confirmed) return
+                          const resp = await fetch('/payments', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ amount, order_number: orderNumber }),
+                          })
+                          if (!resp.ok) throw new Error('付款連線失敗')
+                          const data = await resp.json()
+                          if (!data.pay_url) throw new Error('未回傳付款連結')
+                          window.location.href = data.pay_url
+                        } catch (err) {
+                          console.error(err)
+                          alert(err.message || '付款失敗')
+                        }
+                      }}
+                    >
+                      付款
+                    </button>
+                  ) : (
+                    <button className="btn btn-blue" disabled>待審核</button>
+                  )}
+                </>
               ) : (
-                <button className="btn btn-blue" disabled>待審核</button>
-              )}
-
-              {/* ✅ 若付款成功則顯示 QR Code */}
-              {translateStatus(selectedResv.payment_status) === '已付款' && (
                 <button
                   className="btn btn-green"
                   onClick={() => {
@@ -233,9 +234,8 @@ export default function MyReservations({ user, filterExpired = false }) {
                   上車 QR Code
                 </button>
               )}
-
-
             </div>
+
           </div>
         </div>
       )}

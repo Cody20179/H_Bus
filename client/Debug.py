@@ -13,7 +13,7 @@ def haversine(lat1, lon1, lat2, lon2):
 
 # --- 初始化 ---
 mysql_doing = MySQL_Doing()
-Route_ID = 1
+Route_ID = 2
 
 # --- 取得路線排程 ---
 route_results = mysql_doing.run(f"SELECT * FROM route_schedule WHERE route_no = {Route_ID} LIMIT 1;")

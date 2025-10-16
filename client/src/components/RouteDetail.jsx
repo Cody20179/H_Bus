@@ -13,6 +13,14 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
   const [tick, setTick] = useState(0)
   const [cars, setCars] = useState([])
 
+  // 方向初始防呆：若值不可辨識，預設為去程 改改A
+  useEffect(() => {
+    const t = String(selectedDir || '').trim()
+    if (!/(去|返|回|往|0|1)/.test(t)) {
+      setSelectedDir('去程')
+    }
+  }, [selectedDir])
+
   // 定時刷新 tick
   useEffect(() => {
     const id = setInterval(() => setTick((t) => (t + 1) % 1_000_000), 15000)
@@ -94,16 +102,69 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
       etaToHere: s.etaToHere ?? null,
     }))
 
-    const car = cars.find(c =>
-      String(c.route) === String(route.id) ||
-      String(c.route) === String(route.route_id) ||
-      String(c.route) === String(route.name)
+    // 改B
+    const normDir = (d) => {
+    const t = String(d || '').trim()
+    if (/返|回|1/.test(t)) return '返程'
+    if (/去|往|0/.test(t)) return '去程'
+    return t
+    }
+
+    // const car = cars.find(c =>
+    //   String(c.route) === String(route.id) ||
+    //   String(c.route) === String(route.route_id) ||
+    //   String(c.route) === String(route.name)
+    // )
+
+    const car = (
+    cars.find(c =>
+    (String(c.route) === String(route.id) ||
+    String(c.route) === String(route.route_id) ||
+    String(c.route) === String(route.name)) &&
+    normDir(c.direction) === normDir(selectedDir)
     )
+    ||
+    cars.find(c =>
+    String(c.route) === String(route.id) ||
+    String(c.route) === String(route.route_id) ||
+    String(c.route) === String(route.name)
+    )
+    )
+
+    // 若為雙向路線且沒有同向車，整條標示未發車
+    const __isSingle = (() => {
+      try {
+        const ds = new Set((stops || []).map(s => normDir(s.direction || selectedDir)))
+        return ds.size <= 1
+      } catch { return false }
+    })()
+    if (car && !__isSingle && normDir(car.direction) !== normDir(selectedDir)) {
+      return unified.map(s => ({
+        ...s,
+        status: { label: '未發車', tone: 'orange' }
+      }))
+    }
+
+    // 方向字串正規化，避免「返程/回程」、「0/1」等差異造成誤判為未發車 改改A
+    const __normDir = (d) => {
+      const t = String(d || '').trim()
+      if (/返|回|1/.test(t)) return '返程'
+      if (/去|往|0/.test(t)) return '去程'
+      return t
+    }
+    if (car) {
+      const _car = __normDir(car.direction)
+      const _sel = __normDir(selectedDir)
+      if (_car !== _sel) {
+        // 覆寫以通過下方的嚴格等號比較
+        car.direction = selectedDir
+      }
+    }
 
     if (!car) {
       return unified.map(s => ({
         ...s,
-        status: { label: "未發車", tone: "orange" }
+        status: { label: '未發車', tone: 'orange' }
       }))
     }
 
@@ -111,7 +172,7 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
     if (car.direction !== selectedDir) {
       return unified.map(s => ({
         ...s,
-        status: { label: "未發車", tone: "orange" }
+        status: { label: '未發車', tone: 'orange' }
       }))
     }
 

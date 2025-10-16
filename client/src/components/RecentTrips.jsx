@@ -26,13 +26,26 @@ export default function RecentTrips({ trips = [], showMore, onToggle, statusText
     )
   }
 
+  // 僅顯示過去兩週內的紀錄（含今天）
+  const now = new Date()
+  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
+  const visibleTrips = (trips || []).filter((row) => {
+    try {
+      const t = new Date(row.booking_time)
+      if (isNaN(t)) return false
+      return t >= twoWeeksAgo && t <= now
+    } catch {
+      return false
+    }
+  })
+
   return (
     <section className="card">
       <div className="card-title">
         <span>最近行程</span>
       </div>
       <div className="list">
-        {(showMore ? trips : trips.slice(0, 3))
+        {(showMore ? visibleTrips : visibleTrips.slice(0, 3))
           .filter(r => !String(r.review_status || '').toLowerCase().includes('canceled'))
           .map((r, idx) => (
             <div

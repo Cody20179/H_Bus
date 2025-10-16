@@ -31,6 +31,8 @@ import base64
 import hashlib
 import secrets
 import requests
+import tempfile
+import qrcode
 import urllib.parse
 import numpy as np
 import pandas as pd
@@ -341,16 +343,17 @@ def yo_hualien():
 
 @api.get("/GIS_About", tags=["Client"], summary="取得最新車輛資訊")
 def Get_GIS_About():
-    """以 route_schedule 主導，回傳前端所需欄位（維持原結構）。
+    """
+    以 route_schedule 主導，回傳前端所需欄位：
     - route: 路線 ID
     - X, Y: 車輛經緯度（X=lng, Y=lat）
     - direction: 去程/返程
-    - Current_Loaction: 以經緯度粗估之最近站名
-    若當日無排班，退回以 car_backup 各路線最新一筆為基礎（不再限制 1,2,3）。
+    - Current_Loaction: 最近站名
+    - license_plate: 車牌號碼
     """
-    # 1) 今日排班（正常營運）
-    sch = MySQL_Doing.run(
-        """
+
+    # ---------- 1️⃣ 今日排班（正常營運） ----------
+    sch = MySQL_Doing.run("""
         SELECT
           CAST(route_no AS SIGNED) AS route_id,
           direction,
@@ -358,149 +361,121 @@ def Get_GIS_About():
         FROM route_schedule
         WHERE date = CURDATE()
           AND operation_status = '正常營運'
-        """
-    )
+    """)
 
-    # 無排班：沿用舊邏輯，但擴充到所有路線
     if getattr(sch, "empty", False):
-        fallback = MySQL_Doing.run(
-            """
-            SELECT c.route, c.X, c.Y, c.direction, c.Current_Loaction
-            FROM car_backup c
-            JOIN (
-                SELECT route, MAX(seq) AS max_seq
-                FROM car_backup
-                GROUP BY route
-            ) t ON c.route = t.route AND c.seq = t.max_seq;
-            """
-        )
-        try:
-            return fallback.to_dict()
-        except Exception:
-            # 保底處理：轉成 records
-            try:
-                return (fallback if isinstance(fallback, list) else [])
-            except Exception:
-                return {}
+        return {"status": "success", "data": []}
 
-    # 2) 取車牌最新定位
-    sch["route_id"] = pd.to_numeric(sch["route_id"], errors="coerce").astype("Int64")
-    sch = sch.dropna(subset=["route_id", "license_plate"]).copy()
-    if sch.empty:
-        empty_df = pd.DataFrame(columns=["route", "X", "Y", "direction", "Current_Loaction"])  # noqa
-        return empty_df.to_dict()
-
+    # ---------- 2️⃣ 取得所有車輛最新定位 ----------
     plates = sch["license_plate"].dropna().astype(str).unique().tolist()
     if not plates:
-        empty_df = pd.DataFrame(columns=["route", "X", "Y", "direction", "Current_Loaction"])  # noqa
-        return empty_df.to_dict()
+        return {"status": "success", "data": []}
 
     esc = [p.replace("'", "''") for p in plates]
     in_list = "','".join(esc)
 
-    pos = MySQL_Doing.run(
-        f"""
+    pos = MySQL_Doing.run(f"""
         SELECT
-        b.car_licence AS plate,
-        b.X, b.Y, b.Speed, b.Deg, b.acc, b.rcv_dt
-        FROM ttcarimport b
-        JOIN (
-        SELECT car_licence AS plate, MAX(seq) AS max_seq
+          car_licence AS license_plate,
+          X, Y, Speed, Deg, acc, rcv_dt
         FROM ttcarimport
         WHERE car_licence IN ('{in_list}')
-        GROUP BY car_licence
-        ) t ON b.car_licence = t.plate AND b.seq = t.max_seq
-        """
-    )
+        AND rcv_dt = (
+            SELECT MAX(rcv_dt)
+            FROM ttcarimport t2
+            WHERE t2.car_licence = ttcarimport.car_licence
+        )
+    """)
 
+    if getattr(pos, "empty", False):
+        return {"status": "success", "data": []}
 
-    # 3) 站點（route_id + direction）
+    # ---------- 3️⃣ 站點資料 ----------
     route_ids = sch["route_id"].dropna().astype(int).unique().tolist()
-    if not route_ids:
-        empty_df = pd.DataFrame(columns=["route", "X", "Y", "direction", "Current_Loaction"])  # noqa
-        return empty_df.to_dict()
-
-    dirs = sch["direction"].dropna().astype(str).unique().tolist()
-    esc_dirs = [d.replace("'", "''") for d in dirs]
-    dir_list = "','".join(esc_dirs)
     id_list = ",".join(str(i) for i in route_ids)
-
-    stops = MySQL_Doing.run(
-        f"""
+    stops = MySQL_Doing.run(f"""
         SELECT
-        CAST(route_id AS SIGNED) AS route_id,
-        direction,
-        stop_name AS stop_name,
-        CAST(latitude AS DECIMAL(12,8)) AS latitude,
-        CAST(longitude AS DECIMAL(12,8)) AS longitude,
-        CAST(stop_order AS SIGNED) AS stop_order
+          CAST(route_id AS SIGNED) AS route_id,
+          direction,
+          stop_name,
+          CAST(latitude AS DECIMAL(12,8)) AS latitude,
+          CAST(longitude AS DECIMAL(12,8)) AS longitude,
+          CAST(stop_order AS SIGNED) AS stop_order
         FROM bus_route_stations
         WHERE route_id IN ({id_list})
-        AND direction IN ('{dir_list}')
         ORDER BY route_id, direction, stop_order
-        """
-    )
+    """)
 
-    # 4) 合併計算最近站
+    if getattr(stops, "empty", False):
+        return {"status": "success", "data": []}
+
+    # ---------- 4️⃣ 合併車輛與站點，計算最近站 ----------
+    import math
+    def haversine(lat1, lon1, lat2, lon2):
+        R = 6371000  # 地球半徑（公尺）
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+        return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
     rows = []
-    pos = pos.rename(columns={"license_plate": "plate"}) if not getattr(pos, "empty", False) else pd.DataFrame(columns=["plate"])  # noqa
-    merged = sch.rename(columns={"license_plate": "plate"}).merge(pos, on="plate", how="left")
+    for _, row in sch.iterrows():
+        route_id = int(row["route_id"])
+        direction = str(row["direction"]).strip()
+        plate = str(row["license_plate"])
 
-    def haversine_np(lat1, lon1, lat2, lon2):
-        R = 6371000.0
-        lat1 = np.radians(lat1); lon1 = np.radians(lon1)
-        lat2 = np.radians(lat2); lon2 = np.radians(lon2)
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
-        a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
-        return 2 * R * np.arcsin(np.sqrt(a))
+        # 統一方向文字
+        if direction in ["返程", "回", "1"]:
+            direction = "回程"
+        elif direction in ["去程", "往", "0"]:
+            direction = "去程"
 
-    for _, r in merged.iterrows():
-        route_id = int(r["route_id"]) if pd.notna(r["route_id"]) else None
-        direction = str(r["direction"]) if pd.notna(r["direction"]) else None
-        x = r.get("X"); y = r.get("Y")
-
-        if route_id is None or not direction:
-            continue
-
-        if pd.isna(x) or pd.isna(y):
+        # 找出該車的座標
+        car = pos[pos["license_plate"] == plate]
+        if car.empty:
             rows.append(dict(
                 route=str(route_id),
-                direction=direction,
                 X=None, Y=None,
+                direction=direction,
                 Current_Loaction=None,
-                license_plate=r.get("plate")
+                license_plate=plate
             ))
             continue
 
-        sub = stops[(stops["route_id"] == route_id) & (stops["direction"] == direction)]
-        if getattr(sub, "empty", False):
+        car_lat = float(car["Y"].iloc[0])
+        car_lon = float(car["X"].iloc[0])
+
+        # 該路線的所有站
+        df_stations = stops[stops["route_id"] == route_id]
+        if df_stations.empty:
             rows.append(dict(
                 route=str(route_id),
+                X=car_lon, Y=car_lat,
                 direction=direction,
-                X=float(x), Y=float(y),
                 Current_Loaction=None,
-                license_plate=r.get("plate")
+                license_plate=plate
             ))
             continue
 
-        dist = haversine_np(
-            float(y), float(x),
-            sub["latitude"].to_numpy(dtype=float),
-            sub["longitude"].to_numpy(dtype=float)
+        # 計算距離，找最近站
+        df_stations["distance_m"] = df_stations.apply(
+            lambda s: haversine(car_lat, car_lon, float(s["latitude"]), float(s["longitude"])),
+            axis=1
         )
-        idx = int(np.argmin(dist))
-        nearest = sub.iloc[idx]
+        nearest = df_stations.loc[df_stations["distance_m"].idxmin()]
 
         rows.append(dict(
             route=str(route_id),
+            X=car_lon,
+            Y=car_lat,
             direction=direction,
-            X=float(x), Y=float(y),
-            Current_Loaction=str(nearest.get("stop_name") or ""),
-            license_plate=r.get("plate")
+            Current_Loaction=str(nearest["stop_name"]),
+            license_plate=plate
         ))
 
-    df = pd.DataFrame(rows, columns=["route", "X", "Y", "direction", "Current_Loaction", "license_plate"])  # noqa
+    # ---------- 5️⃣ 回傳結果 ----------
+    df = pd.DataFrame(rows, columns=["route", "X", "Y", "direction", "Current_Loaction", "license_plate"])
     print(df[["route", "X", "Y", "direction", "Current_Loaction", "license_plate"]].to_dict())
     return df[["route", "X", "Y", "direction", "Current_Loaction", "license_plate"]].to_dict()
 
@@ -589,8 +564,6 @@ def get_gis_by_route(route_id: int):
 
     if not stops or (hasattr(stops, "empty") and stops.empty):
         raise HTTPException(status_code=404, detail="stops not found for route/direction")
-
-    import numpy as _np
 
     def _haversine_np(lat1, lon1, lat2, lon2):
         R = 6371000.0
@@ -820,6 +793,66 @@ def verify_qrcode(data: dict = Body(...)):
         "message": "驗證通過" if paid and assigned else "尚未付款或未派車"
     }
 
+@api.get("/announcements", tags=["Client"], summary="取得服務公告列表")
+def get_announcements():
+    sql = "SELECT id, title, content, created_at FROM announcements ORDER BY created_at DESC"
+    rows = MySQL_Doing.run(sql)
+    if hasattr(rows, "to_dict"):
+        return {"status": "success", "data": rows.to_dict(orient="records")}
+    return {"status": "success", "data": rows}
+
+@api.post("/announcements/add", tags=["Admin"], summary="新增服務公告")
+def add_announcement(title: str = Body(...), content: str = Body(...)):
+    sql = f"""
+    INSERT INTO announcements (title, content)
+    VALUES ('{title}', '{content}');
+    """
+    MySQL_Doing.run(sql)
+    return {"status": "success"}
+
+@api.delete("/announcements/delete/{ann_id}", tags=["Admin"], summary="刪除公告")
+def delete_announcement(ann_id: int):
+    sql = f"DELETE FROM announcements WHERE id = {ann_id}"
+    MySQL_Doing.run(sql)
+    return {"status": "success"}
+
+@api.get("/Generate_QRCode", tags=["Utility"], summary="產生路線站點 QRCode 並下載")
+def generate_qr_code(
+    base_url: str,
+    route_id: int,
+    stop_count: int,
+):
+    """
+    依據路線 ID 與站點數產生 QR Code 圖片壓縮包，並提供下載。
+    - base_url: 前端或公開網址 (例如 https://xxx.ngrok-free.app)
+    - route_id: 路線 ID
+    - stop_count: 站點數量
+    """
+    try:
+        # 建立暫存目錄
+        temp_dir = tempfile.mkdtemp(prefix="qrcodes_")
+        for stop_order in range(1, stop_count + 1):
+            url = f"{base_url}/routes/{route_id}/stop/{stop_order}"
+            img = qrcode.make(url)
+            img.save(os.path.join(temp_dir, f"route{route_id}_stop{stop_order}.png"))
+
+        # 壓縮成 zip 方便下載
+        zip_path = os.path.join(temp_dir, f"route{route_id}_qrcodes.zip")
+        import zipfile
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for fname in os.listdir(temp_dir):
+                if fname.endswith(".png"):
+                    zf.write(os.path.join(temp_dir, fname), arcname=fname)
+
+        return FileResponse(
+            zip_path,
+            media_type="application/zip",
+            filename=f"route{route_id}_qrcodes.zip",
+        )
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    
 # === 使用者更新資訊 ===
 @api.post("/users/update_mail", tags=["Users"], summary="更新使用者Email")
 def update_mail(user_id: int, email: str):

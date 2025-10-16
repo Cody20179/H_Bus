@@ -28,15 +28,34 @@ export async function getRoutes() {
     }))
 }
 
-export async function getRouteStops(routeId, direction) {
+// export async function getRouteStops(routeId, direction) {
+//   const res = await fetch(`${BASE}/Route_Stations`, {
+//     method: 'POST',
+//     headers: {
+//       accept: 'application/json',
+//       'content-type': 'application/json',
+//     },
+//     body: JSON.stringify({ route_id: routeId, direction }),
+//   })
+
+// 改改A
+export async function getRouteStops(routeId, direction) { 
+  // 正規化方向字串，避免「回程/返程」或 0/1 差異
+  const normDir = (d) => {
+    const t = String(d || '').trim()
+    if (/返|回|1/.test(t)) return '返程'
+    if (/去|往|0/.test(t)) return '去程'
+    return t
+  }
   const res = await fetch(`${BASE}/Route_Stations`, {
     method: 'POST',
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ route_id: routeId, direction }),
+    body: JSON.stringify({ route_id: Number(routeId) }),
   })
+
   if (!res.ok) {
     throw new Error(`Failed to load stops: ${res.status}`)
   }
