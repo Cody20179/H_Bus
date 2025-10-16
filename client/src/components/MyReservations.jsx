@@ -10,19 +10,39 @@ export default function MyReservations({ user, filterExpired = false }) {
   const [showRouteModal, setShowRouteModal] = useState(false)
   const [cancelTarget, setCancelTarget] = useState(null)
   const [cancelReason, setCancelReason] = useState('')
+  const [refreshTick, setRefreshTick] = useState(0)
+  const AUTO_REFRESH_MS = 30000
 
-  // 抓資料
   useEffect(() => {
     const uid = user?.user_id || user?.id
     if (!uid) return
-    setResvLoading(true)
-    getMyReservations(uid)
-      .then(setMyResv)
-      .catch(e => setResvErr(String(e.message || e)))
-      .finally(() => setResvLoading(false))
+    let cancelled = false
+    const load = async () => {
+      if (refreshTick === 0) setResvLoading(true)
+      setResvErr('')
+      try {
+        const data = await getMyReservations(uid)
+        if (!cancelled) setMyResv(data)
+      } catch (e) {
+        if (!cancelled) setResvErr(String(e.message || e))
+      } finally {
+        if (!cancelled) setResvLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [user, refreshTick])
+
+  useEffect(() => {
+    setRefreshTick(0)
+    const uid = user?.user_id || user?.id
+    if (!uid) return
+    const id = setInterval(() => {
+      setRefreshTick((t) => (t + 1) % 1_000_000)
+    }, AUTO_REFRESH_MS)
+    return () => clearInterval(id)
   }, [user])
 
-  // 格式化時間
   const fmt = (s) => {
     try {
       if (!s) return '-'
@@ -37,7 +57,6 @@ export default function MyReservations({ user, filterExpired = false }) {
     } catch { return String(s) }
   }
 
-  // 過濾掉已過期的預約（filterExpired = true 時才作用）
   const now = new Date()
   const visibleResv = filterExpired
     ? myResv.filter(r => {
@@ -50,18 +69,6 @@ export default function MyReservations({ user, filterExpired = false }) {
     <section className="card">
       <div className="card-title">
         <span>我的預約</span>
-        <button
-          className="link-btn"
-          onClick={() => {
-            const uid = user?.id ?? user?.user_id
-            if (!uid) { alert('請先登入'); return }
-            setResvLoading(true); setResvErr('')
-            getMyReservations(uid)
-              .then(setMyResv)
-              .catch((e) => setResvErr(String(e.message || e)))
-              .finally(() => setResvLoading(false))
-          }}
-        >刷新</button>
       </div>
       <div className="resv-list">
         {resvLoading && <div className="muted small">載入中…</div>}
@@ -175,6 +182,7 @@ export default function MyReservations({ user, filterExpired = false }) {
         const data = await resp.json()
         if (!data.pay_url) throw new Error('未回傳付款連結')
 
+        // 🚀 導向雷門金流頁面
         window.location.href = data.pay_url
       } catch (err) {
         console.error(err)

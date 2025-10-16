@@ -3,8 +3,8 @@
     <!-- Sidebar -->
     <aside class="sidebar" :aria-hidden="hidden ? 'true' : 'false'">
       <div class="logo">
-        <div class="logo-title">H-Bus</div>
-        <div class="logo-sub">管理系統</div>
+        <img class="logo-title" src="@/assets/taroko-logo.svg" alt="TarokoBus Logo" />
+        <!--<div class="logo-sub">管理系統</div>-->
       </div>
 
       <nav class="nav">
@@ -15,8 +15,6 @@
           <li @click="goTo('reservation')">預約管理</li>
           <li @click="goTo('car')">車輛管理</li>
           <li @click="goTo('route')">路線管理</li>
-          <li @click="goTo('email-reminder')">Email Reminder</li>
-          <li @click="goTo('qr-generator')">QR Codes</li>
         </ul>
       </nav>
     </aside>
@@ -108,7 +106,7 @@
             <!-- 營收概況卡片 -->
             <div class="stat-card revenue">
               <div class="card-header">
-                <div class="card-icon">�</div>
+                <div class="card-icon">💰</div>
                 <div class="card-title">營收狀況</div>
               </div>
               <div class="card-content">
@@ -1849,12 +1847,6 @@ function goTo(page: string) {
     case 'route':
       router.push('/home/route-management')
       break
-    case 'email-reminder':
-      router.push('/home/email-reminder')
-      break
-    case 'qr-generator':
-      router.push('/home/qr-generator')
-      break
     default:
       console.warn('未知的頁面:', page)
   }
@@ -1923,9 +1915,22 @@ function logout(){
 }
 
 /* sidebar 內容 */
-.logo { margin-bottom:22px; text-align:center; }
-.logo-title{ font-size:34px; font-weight:700; color:#fff; }
-.logo-sub{ color:#9ca3af; font-size:13px; margin-top:6px; }
+.logo { 
+  margin-bottom:22px; 
+  text-align:center; 
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:8px;
+}
+.logo-title{
+  width:180px;
+  max-width:50%;
+  height:auto;
+  display:block;
+  object-fit:contain;
+}
+.logo-sub{ color:#9ca3af; font-size:13px; margin-top:0; }
 
 /* nav */
 .nav ul{ list-style:none; padding:0; margin:0; }

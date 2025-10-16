@@ -154,7 +154,17 @@ export default function RouteDetail({ route, onClose, highlightStop }) {
             </div>
           </div>
           <div>
-            <button className="btn" onClick={() => setViewMode(viewMode === 'list' ? 'map' : 'list')} style={{ marginRight: 8 }}>{viewMode === 'list' ? '地圖' : '列表'}</button>
+            <button
+              className="btn"
+              onClick={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
+              style={{
+                marginRight: 8,
+                backgroundColor: viewMode === 'list' ? '#007bff' : '#ffa726',
+                color: '#fff'
+              }}
+            >
+              {viewMode === 'list' ? '地圖' : '列表'}
+            </button>
             <button className="btn btn-orange" onClick={onClose}>關閉</button>
           </div>
         </div>

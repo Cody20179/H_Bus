@@ -1,22 +1,43 @@
+# ====================================
+# 🧩 專案內部模組
+# ====================================
+from Backend import Define
+from Backend.MySQL import MySQL_Doing
+
+# ====================================
+# 📦 第三方套件
+# ====================================
 from fastapi import FastAPI, Request, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from base64 import b64encode, b64decode
-from urllib.parse import urlparse
-from urllib.parse import quote
 from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
 from dotenv import load_dotenv
-from typing import List
-from Backend.MySQL import MySQL_Doing
-from Backend import Define
 from pydantic import BaseModel, Field
-from decimal import Decimal, InvalidOperation
-
 import pandas as pd
-import secrets, hashlib, urllib.parse, base64, json, time, hmac, os, redis, httpx
+import redis
+import httpx
 
+# ====================================
+# ✅ 標準庫
+# ====================================
+import os
+import json
+import time
+import hmac
+import base64
+import hashlib
+import secrets
+import requests
+import urllib.parse
+from datetime import datetime
+from urllib.parse import urlparse, quote
+from binascii import unhexlify
+from base64 import b64encode, b64decode
+from decimal import Decimal, InvalidOperation
+from typing import List
 
 api = APIRouter(prefix='/api')
 
@@ -63,7 +84,7 @@ STORE_CODE    = os.getenv("STORE_CODE", "")
 KEY_HEX       = os.getenv("KEY", "")
 IV_HEX        = os.getenv("IV", "")
 LAYMON        = os.getenv("LAYMON", "iqrc.epay365.com.tw")  # 雷門 host，不要加 https://
-PUBLIC_BASE   = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")  # 例: https://hualenbus.labelnine.app:8600
+PUBLIC_BASE   = os.getenv("FRONTEND_DEFAULT_URL", "").rstrip("/") 
 
 if not all([MERCHANT_ID, TERMINAL_ID, STORE_CODE, KEY_HEX, IV_HEX, PUBLIC_BASE]):
     raise RuntimeError("環境變數缺失：請確認 MERCHANT_ID / TERMINAL_ID / STORE_CODE / KEY / IV / PUBLIC_BASE_URL")
@@ -205,18 +226,19 @@ def _unauthorized_response(request: Request, detail: str):
     raise HTTPException(status_code=401, detail={"detail": detail, "login_url": login_url})
     
 # --- AES256-CBC 加解密 ---
-def pad(s: str) -> str:
-    pad_len = 16 - (len(s.encode("utf-8")) % 16)
-    return s + chr(pad_len) * pad_len
-
 def unpad(s: str) -> str:
     pad_len = ord(s[-1])
     return s[:-pad_len]
 
-def encrypt_aes(data: str, key: bytes, iv: bytes) -> str:
+def encrypt_aes(data: dict) -> str:
+    """依雷門規範 AES-256-CBC + PKCS7 padding + Base64"""
+    key = bytes.fromhex(KEY_HEX)
+    iv = bytes.fromhex(IV_HEX)
+    json_str = json.dumps(data, separators=(",", ":"))
     cipher = AES.new(key, AES.MODE_CBC, iv)
-    ct_bytes = cipher.encrypt(pad(data).encode("utf-8"))
-    return b64encode(ct_bytes).decode("utf-8")
+    encrypted_bytes = cipher.encrypt(pad(json_str.encode("utf-8"), 16))
+    return base64.b64encode(encrypted_bytes).decode("utf-8")
+
 
 def decrypt_aes(enc: str, key: bytes, iv: bytes) -> str:
     cipher = AES.new(key, AES.MODE_CBC, iv)
@@ -407,6 +429,38 @@ def Cancled_reservation(req: Define.CancelReq):
     Results = MySQL_Doing.run(sql)
     return {"status": "success", "sql": Results}
 
+@api.get("/privacy", tags=["Client"], summary="privacy")
+async def get_privacy():
+    gist_url = "https://gist.githubusercontent.com/Cody20179/ef17eeb9e2880a3a677bb5c74232c003/raw/gistfile1.txt"
+    resp = requests.get(gist_url)
+    return {"content": resp.text}
+
+@api.post("/car_backup_insert", tags=["Car"], summary="插入車輛備份資料")
+def insert_car_backup(data: Define.CarBackupInsert):
+    # 若未提供 rcv_dt，使用伺服器當前時間
+    rcv_dt = data.rcv_dt or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    acc_value = "b'1'" if data.acc else "b'0'" if data.acc is not None else "NULL"
+
+    sql = f"""
+    INSERT INTO car_backup (
+        rcv_dt, car_licence, Gpstime, X, Y, Speed, Deg, acc, route, direction, Current_Loaction
+    ) VALUES (
+        '{rcv_dt}', '{data.car_licence}', '{data.Gpstime}',
+        {data.X}, {data.Y}, {data.Speed}, {data.Deg},
+        {acc_value},
+        {f"'{data.route}'" if data.route else "NULL"},
+        {f"'{data.direction}'" if data.direction else "NULL"},
+        {f"'{data.Current_Loaction}'" if data.Current_Loaction else "NULL"}
+    );
+    """
+
+    try:
+        MySQL_Doing.run(sql)
+        return {"status": "success", "rcv_dt": rcv_dt, "sql": sql}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 # === 使用者更新資訊 ===
 @api.post("/users/update_mail", tags=["Users"], summary="更新使用者Email")
 def update_mail(user_id: int, email: str):
@@ -554,40 +608,46 @@ async def me(request: Request):
         "last_login": row["last_login"],
     }
 
-# ====== 建立付款連結（正式） ======
-@app.post("/payments", response_model=CreatePaymentOut, tags = ["Pay"], summary="建立付款連結")
+# ====================================
+# 🧾 建立付款連結
+# ====================================
+@app.post("/payments", response_model=CreatePaymentOut)
 def create_payment(body: CreatePaymentIn):
-    # 驗證 amount 為正數（避免浮點誤差，使用 Decimal）
-    try:
-        amt = Decimal(body.amount)
-    except InvalidOperation:
-        raise HTTPException(status_code=400, detail="amount 格式錯誤")
-
+    amt = Decimal(body.amount)
     if amt <= 0 or amt != amt.quantize(Decimal("1")):
-        # 雷門若要求整數元，這裡限制為整數金額；若允許小數請調整 quantize
-        raise HTTPException(status_code=400, detail="amount 必須為正整數（元）")
+        raise HTTPException(status_code=400, detail="amount 必須為正整數")
 
     payload = {
-        "merchant_id": MERCHANT_ID,
-        "terminal_id": TERMINAL_ID,
-        "store_code":  STORE_CODE,
-        "set_price": str(amt),                     # 金額（元）
-        "pos_order_number": body.order_number,     # 訂單編號
-        "callback_url": f"{PUBLIC_BASE}/callback", # 供雷門伺服器回呼
-        "return_url":   f"{PUBLIC_BASE}/return"    # 供使用者導回顯示頁
+        "set_price": str(amt),
+        "pos_id": "01",
+        "pos_order_number": body.order_number,
+        "callback_url": f"{PUBLIC_BASE}/callback",
+        "return_url": f"{PUBLIC_BASE}/return",
+        "nonce": secrets.token_hex(8),  # 加這行
     }
 
-    json_str = json.dumps(payload, separators=(',', ':'))
-    transaction_data = encrypt_aes(json_str, KEY, IV)
+    # === AES 加密 ===
+    transaction_data = encrypt_aes(payload)
+
+    # === SHA256 雜湊（注意：針對未 URL encode 的原始 Base64 字串）===
     hash_digest = hashlib.sha256(transaction_data.encode("utf-8")).hexdigest()
 
-    url = f"https://{LAYMON}/calc/pay_encrypt/{STORE_CODE}"
-    full_url = f"{url}?TransactionData={quote(transaction_data)}&HashDigest={hash_digest}"
+    print("原始 JSON:", payload)
+    print("加密後 TransactionData:", transaction_data)
+    print("本地算出的 HashDigest:", hash_digest)
+
+    # === URL encode 後組成最終網址 ===
+    full_url = (
+        f"https://{LAYMON}/calc/pay_encrypt/{STORE_CODE}"
+        f"?TransactionData={quote(transaction_data)}&HashDigest={hash_digest}"
+    )
 
     return CreatePaymentOut(pay_url=full_url)
 
-# ====== 雷門回傳 callback（伺服器對伺服器） ======
-@app.post("/callback", tags = ["Pay"])
+# ====================================
+# 🔁 雷門 callback（伺服器對伺服器）
+# ====================================
+@app.post("/callback")
 async def callback(request: Request):
     body = await request.json()
     enc_data = body.get("TransactionData")
@@ -597,23 +657,27 @@ async def callback(request: Request):
         raise HTTPException(status_code=400, detail="缺少必要欄位")
 
     # 驗證 hash
-    if hashlib.sha256(enc_data.encode("utf-8")).hexdigest() != hash_digest:
+    local_hash = hashlib.sha256(enc_data.encode("utf-8")).hexdigest()
+    if local_hash != hash_digest:
         raise HTTPException(status_code=400, detail="Hash 驗證失敗")
 
-    # 解密資料
     try:
-        decrypted = decrypt_aes(enc_data, KEY, IV)
-        data = json.loads(decrypted)
-        # TODO: 在此更新你的訂單狀態（付款成功/失敗等），依雷門實際回傳欄位解讀
-        return {"status": "ok", "data": data}
+        data = decrypt_aes(enc_data)
+        order_number = data.get("pos_order_number")
+        if order_number:
+            sql = f"UPDATE reservation SET payment_status = 'paid' WHERE reservation_id = '{order_number}'"
+            MySQL_Doing.run(sql)
+
+        # return {"status": "ok", "data": data}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"解密失敗: {e}")
 
-# ====== 使用者導回頁（前端顯示用） ======
-@app.get("/return", tags = ["Pay"])
+# ====================================
+# 🌐 使用者導回頁
+# ====================================
+@app.get("/return")
 def return_page():
-    # 你可以改成回傳 HTML 或重導到你的前端頁面
-    return {"message": "付款流程結束，這裡顯示給使用者看"}
+    return RedirectResponse(url=f"{PUBLIC_BASE}?tab=reservations")
 
 # === 前端靜態檔案服務 ===
 app.include_router(api)

@@ -81,7 +81,9 @@ export default function RoutesPage() {
     <div className="routes-page">
       <div className="page-header">
         <h2>所有路線</h2>
-        <div className="muted">點選路線可查看詳情</div>
+        <div className="muted" style={{ color: '#000' }}>
+          點選路線可查看詳情
+        </div>
         {loading && <div className="muted">載入中…</div>}
         {error && <div className="muted" style={{ color: '#c25' }}>{error}</div>}
       </div>

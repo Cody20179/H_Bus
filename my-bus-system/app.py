@@ -1,25 +1,23 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, HTTPException, File, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine, Column, Integer, String, TIMESTAMP, Boolean, ForeignKey, text, func, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel,Field
 from typing import Optional, Literal, List, Tuple, Dict, Set
 import bcrypt
-import os
 from dotenv import load_dotenv
 from collections import defaultdict
 from calendar import monthrange
-from datetime import datetime, timezone, timedelta, date
+from datetime import datetime, timedelta, date
 import pytz
 from MySQL import MySQL_Run
 import pandas as pd
-import uvicorn
 import hashlib
-import json
-import secrets
-import string
+import xml.etree.ElementTree as ET
 try:
     import redis  # redis-py
 except Exception:  # pragma: no cover
@@ -54,7 +52,6 @@ REVIEW_STATUS_PRIORITY = [
     "rejected",
     "canceled",
 ]
-
 
 def _add_month(value: date) -> date:
     if value.month == 12:
@@ -160,7 +157,6 @@ def _ensure_datetime_window(start: date, end: date) -> Tuple[datetime, datetime]
     end_dt = datetime.combine(end + timedelta(days=1), datetime.min.time())
     return start_dt, end_dt
 
-
 # 載入環境變數
 load_dotenv()
 
@@ -169,22 +165,6 @@ DATABASE_URL = f"mysql+pymysql://root:109109@192.168.0.126:3307/bus_system"
 engine = create_engine(DATABASE_URL, echo=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
-
-# ===== OTP/驗證碼：Redis 設定與工具 =====
-REDIS_URL = os.getenv("HBUS_REDIS_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0"))
-OTP_TTL_SEC = int(os.getenv("HBUS_OTP_TTL_SEC", "300"))           # 驗證碼有效 5 分鐘
-OTP_LEN = int(os.getenv("HBUS_OTP_LEN", "6"))                      # 驗證碼長度 6
-OTP_MAX_ATTEMPTS = int(os.getenv("HBUS_OTP_MAX_ATTEMPTS", "5"))   # 最多嘗試次數 5
-OTP_RESEND_COOLDOWN = int(os.getenv("HBUS_OTP_RESEND_COOLDOWN", "60"))  # 重送冷卻 60 秒
-OTP_RL_DEST_MAX_10MIN = int(os.getenv("HBUS_OTP_RL_DEST_MAX_10MIN", "3"))  # 每目的 10 分鐘最多 3 次
-OTP_RL_IP_MAX_1H = int(os.getenv("HBUS_OTP_RL_IP_MAX_1H", "10"))          # 每 IP 1 小時最多 10 次
-OTP_DEBUG_RETURN_CODE = os.getenv("HBUS_OTP_DEBUG", "false").lower() in {"1", "true", "yes"}
-OTP_FORCE_CODE = os.getenv("HBUS_OTP_FORCE_CODE")  # e.g. "123456" 便於測試
-OTP_LOG_ENABLE = os.getenv("HBUS_OTP_LOG", "true").lower() in {"1", "true", "yes"}
-OTP_LOG_FILE = os.getenv(
-    "HBUS_OTP_LOG_FILE",
-    os.path.join(os.path.dirname(__file__), "otp_codes.txt"),
-)
 
 # 資料庫模型（匹配實際表結構）
 class User(Base):
@@ -319,7 +299,6 @@ class UserCreate(BaseModel):
     preferences: Optional[str] = None
     privacy_settings: Optional[str] = None
 
-
 class UserUpdate(BaseModel):
     line_id: Optional[str] = None
     username: Optional[str] = None
@@ -373,7 +352,6 @@ class OTPVerify(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
-
 
 class Route(BaseModel):
     route_id: int
@@ -443,8 +421,6 @@ class CarResourceUpdate(BaseModel):
     commission_date: Optional[date] = None
     last_service_date: Optional[date] = None
 
-
-
 # 依賴注入
 def get_db():
     db = SessionLocal()
@@ -496,10 +472,6 @@ def get_role_name(db: Session, role_id: Optional[int]) -> Optional[str]:
     role = get_role_by_id(db, role_id)
     return (role.role_name if role else None)
 
-def current_role_name(db: Session, current_user: AdminUser) -> Optional[str]:
-    role = get_role_by_id(db, current_user.role_id)
-    return role.role_name if role else None
-
 # Redis 相關輔助函數
 def get_redis():
     if redis is None:
@@ -535,11 +507,6 @@ def _otp_keys(purpose: str, acc_hash: str):
 
 def _ip_key(ip: str) -> str:
     return f"otp:rl:ip:{ip}"
-
-def _gen_code(length: int = OTP_LEN) -> str:
-    if OTP_FORCE_CODE:
-        return OTP_FORCE_CODE[:length]
-    return "".join(secrets.choice(string.digits) for _ in range(length))
 
 # FastAPI 應用
 app = FastAPI()
@@ -983,7 +950,6 @@ def get_reservation_trend(
         print("get_reservation_trend error:", exc)
         raise HTTPException(status_code=500, detail="取得預約趨勢資料時發生錯誤")
 
-
 @app.get("/api/dashboard/reservations/status")
 def get_reservation_status_distribution(
     mode: Literal['monthly', 'range'] = Query('monthly'),
@@ -1157,7 +1123,6 @@ def get_reservation_status_distribution(
         print("get_reservation_status_distribution error:", exc)
         raise HTTPException(status_code=500, detail="取得預約狀態資料時發生錯誤")
 
-
 # 路線統計（總數/啟用/站點覆蓋率）
 @app.get("/api/dashboard/route-stats")
 def get_route_stats():
@@ -1203,7 +1168,6 @@ def get_route_stats():
             },
         }
         
-
 # 會員活躍度分析 API
 @app.get("/api/dashboard/member-activity")
 def get_member_activity(days: int = 7, db: Session = Depends(get_db)):
@@ -1505,11 +1469,6 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
         "updated_at": user.updated_at.isoformat() if user.updated_at else None,
         "last_login": user.last_login.isoformat() if user.last_login else None
     }
-
-## 移除早期未受權限保護的 update_user，改用下方受保護版本
-
-## 移除早期未受權限保護的 delete_user，改用下方受保護版本
-
 
 # 用戶登入驗證 API
 class UserLogin(BaseModel):
@@ -1881,54 +1840,6 @@ def delete_admin_user(admin_id: int, db: Session = Depends(get_db), current_user
             "success": False,
             "message": f"刪除管理員用戶失敗: {str(e)}"
         }
-'''
-# 角色管理 API
-@app.get("/roles")
-def get_roles(db: Session = Depends(get_db)):
-    # 移除權限檢查
-    roles = db.query(AdminRole).all()
-    return {"roles": [{"role_id": r.role_id, "role_name": r.role_name, "role_description": r.role_description, "permissions": r.permissions, "is_system_role": r.is_system_role} for r in roles]}
-
-@app.post("/roles")
-def create_role(role: AdminRoleCreate, db: Session = Depends(get_db)):
-    # 移除權限檢查
-    new_role = AdminRole(**role.dict())
-    db.add(new_role)
-    db.commit()
-    db.refresh(new_role)
-    return {"role_id": new_role.role_id, "message": "角色建立成功"}
-
-@app.put("/roles/{role_id}")
-def update_role(role_id: int, role_update: AdminRoleUpdate, db: Session = Depends(get_db)):
-    # 移除權限檢查
-    role = db.query(AdminRole).filter(AdminRole.role_id == role_id).first()
-    if not role:
-        raise HTTPException(status_code=404, detail="角色不存在")
-    for key, value in role_update.dict(exclude_unset=True).items():
-        setattr(role, key, value)
-    db.commit()
-    return {"message": "角色更新成功"}
-
-@app.delete("/roles/{role_id}")
-def delete_role(role_id: int, db: Session = Depends(get_db)):
-    # 移除權限檢查
-    role = db.query(AdminRole).filter(AdminRole.role_id == role_id).first()
-    if not role:
-        raise HTTPException(status_code=404, detail="角色不存在")
-    db.delete(role)
-    db.commit()
-    return {"message": "角色刪除成功"}
-
-# 權限 API
-@app.get("/permissions")
-def get_permissions(db: Session = Depends(get_db)):
-    # 移除權限檢查
-    roles = db.query(AdminRole).all()
-    permissions = {}
-    for role in roles:
-        permissions[role.role_name] = role.permissions.split(',') if role.permissions else []
-    return {"permissions": permissions}
-'''
 
 @app.get("/")
 def root():
@@ -1978,7 +1889,6 @@ class RouteCreate(BaseModel):
     end_stop: Optional[str] = None
     stop_count: Optional[int] = 0
     status: Optional[int] = 1
-
 
 @app.post("/api/routes/create")
 def create_route(route: RouteCreate, current_user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -2048,7 +1958,6 @@ def create_route(route: RouteCreate, current_user: AdminUser = Depends(get_curre
         print(f"新增路線失敗: {e}")
         raise HTTPException(status_code=500, detail=f"新增路線失敗: {str(e)}")
 
-
 class RouteUpdate(BaseModel):
     route_id: int
     route_name: Optional[str] = None
@@ -2057,7 +1966,6 @@ class RouteUpdate(BaseModel):
     end_stop: Optional[str] = None
     stop_count: Optional[int] = None
     status: Optional[int] = None
-
 
 @app.put("/api/routes/update")
 def update_route(route: RouteUpdate, current_user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -2117,10 +2025,8 @@ def update_route(route: RouteUpdate, current_user: AdminUser = Depends(get_curre
         print(f"更新路線失敗: {e}")
         raise HTTPException(status_code=500, detail=f"更新路線失敗: {str(e)}")
 
-
 class RouteDelete(BaseModel):
     route_id: int
-
 
 @app.delete("/api/routes/delete")
 def delete_route(req: RouteDelete, current_user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -2243,126 +2149,7 @@ def get_route_stations(q: RouteStationsQuery):
     data: List[StationOut] = [StationOut(**r) for r in records]
     return data
 
-# ===== OTP/驗證碼 API =====
-@app.post("/auth/otp/request")
-def otp_request(req: OTPRequest, request: Request):
-    r = get_redis()
-    purpose = (req.purpose or "login").strip().lower()
-    acc = _norm_account(req.account)
-    if not acc:
-        raise HTTPException(status_code=400, detail="缺少 account")
-    acc_hash = _hash_key(acc)
-    keys = _otp_keys(purpose, acc_hash)
-
-    # 檢查是否鎖定
-    if r.get(keys["lock"]):
-        raise HTTPException(status_code=429, detail="驗證碼已鎖定，請稍後再試")
-
-    # 重送冷卻
-    if r.ttl(keys["cooldown"]) > 0:
-        raise HTTPException(status_code=429, detail="發送過於頻繁，請稍後再試")
-
-    # 目的地 rate limit（10 分鐘 3 次）
-    dest_cnt = r.incr(keys["dest_rl"])
-    if dest_cnt == 1:
-        r.expire(keys["dest_rl"], 600)
-    if dest_cnt > OTP_RL_DEST_MAX_10MIN:
-        raise HTTPException(status_code=429, detail="請求次數過多，稍後再試")
-
-    # 來源 IP rate limit（1 小時 10 次）
-    ip = request.client.host if request and request.client else "unknown"
-    ip_key = _ip_key(ip)
-    ip_cnt = r.incr(ip_key)
-    if ip_cnt == 1:
-        r.expire(ip_key, 3600)
-    if ip_cnt > OTP_RL_IP_MAX_1H:
-        raise HTTPException(status_code=429, detail="此 IP 請求過多，請稍後再試")
-
-    # 產生並保存驗證碼
-    code = _gen_code()
-    payload = {
-        "code": code,
-        "created_at": get_taipei_time().isoformat(),
-        "purpose": purpose,
-        "attempts_left": OTP_MAX_ATTEMPTS,
-    }
-    r.setex(keys["code"], OTP_TTL_SEC, json.dumps(payload))
-    r.setex(keys["tries"], OTP_TTL_SEC, str(OTP_MAX_ATTEMPTS))
-    r.setex(keys["cooldown"], OTP_RESEND_COOLDOWN, "1")
-
-    # 將驗證碼與帳號寫入檔案（測試用途，正式環境請關閉 HBUS_OTP_LOG）
-    if OTP_LOG_ENABLE:
-        try:
-            ts = get_taipei_time().strftime("%Y-%m-%d %H:%M:%S %z")
-            with open(OTP_LOG_FILE, "a", encoding="utf-8") as f:
-                f.write(f"{ts}\taccount={acc}\tpurpose={purpose}\tcode={code}\n")
-        except Exception as e:
-            print(f"[OTP] 寫入驗證碼檔案失敗: {e}")
-
-    # 在此整合真實發送（SMS/Email）。目前僅回傳遮罩資訊；若開啟 DEBUG，會回傳 code 方便測試。
-    mask = (acc[:3] + "***" + acc[-2:]) if "@" not in acc else (acc.split("@")[0][:1] + "***@" + acc.split("@")[-1])
-    resp = {"ok": True, "sent_to": mask, "ttl": OTP_TTL_SEC, "cooldown": OTP_RESEND_COOLDOWN}
-    if OTP_DEBUG_RETURN_CODE:
-        resp["debug_code"] = code
-    return resp
-
-@app.post("/auth/otp/verify")
-def otp_verify(req: OTPVerify):
-    r = get_redis()
-    purpose = (req.purpose or "login").strip().lower()
-    acc = _norm_account(req.account)
-    if not acc or not req.code:
-        raise HTTPException(status_code=400, detail="缺少 account 或 code")
-    acc_hash = _hash_key(acc)
-    keys = _otp_keys(purpose, acc_hash)
-
-    # 鎖定檢查
-    if r.get(keys["lock"]):
-        raise HTTPException(status_code=429, detail="已鎖定，請稍後再試")
-
-    raw = r.get(keys["code"])
-    if not raw:
-        raise HTTPException(status_code=400, detail="驗證碼已過期或不存在")
-    try:
-        payload = json.loads(raw)
-    except Exception:
-        payload = {"code": raw, "attempts_left": int(r.get(keys["tries"]) or 0)}
-
-    attempts_left = int(r.get(keys["tries"]) or payload.get("attempts_left") or 0)
-    if attempts_left <= 0:
-        # 設定鎖定 10 分鐘
-        r.setex(keys["lock"], 600, "1")
-        r.delete(keys["code"], keys["tries"], keys["cooldown"])
-        raise HTTPException(status_code=429, detail="嘗試次數過多，已鎖定")
-
-    if req.code.strip() != str(payload.get("code", "")).strip():
-        attempts_left -= 1
-        r.setex(keys["tries"], max(r.ttl(keys["code"]), 1), str(attempts_left))
-        raise HTTPException(status_code=400, detail=f"驗證碼錯誤，剩餘 {attempts_left} 次")
-
-    # 通過：簽發一次性 ticket（10 分鐘）供後續綁定登入/註冊
-    r.delete(keys["tries"], keys["cooldown"])
-    r.delete(keys["code"])  # 單次使用
-    ticket = secrets.token_urlsafe(24)
-    r.setex(f"otp:ticket:{ticket}", 600, json.dumps({"account": acc, "purpose": purpose}))
-    return {"ok": True, "ticket": ticket, "expires_in": 600}
-
-@app.post("/auth/otp/consume")
-def otp_consume(ticket: str):
-    """用 ticket 兌換，完成下一步（例如登入/註冊）。這裡僅驗證 ticket 並刪除。"""
-    r = get_redis()
-    raw = r.get(f"otp:ticket:{ticket}")
-    if not raw:
-        raise HTTPException(status_code=400, detail="ticket 無效或已過期")
-    r.delete(f"otp:ticket:{ticket}")
-    try:
-        data = json.loads(raw)
-    except Exception:
-        data = {"account": None, "purpose": None}
-    return {"ok": True, "account": data.get("account"), "purpose": data.get("purpose")}
-
 # ===== 路線站點管理 API =====
-
 class StationCreate(BaseModel):
     route_id: int
     route_name: str
@@ -2373,6 +2160,10 @@ class StationCreate(BaseModel):
     stop_order: int
     eta_from_start: int
     address: Optional[str] = None
+    
+    # 新增：順序調整選項
+    replace_existing: Optional[bool] = False
+    auto_reorder: Optional[bool] = False
 
 class StationUpdate(BaseModel):
     route_id: int
@@ -2388,9 +2179,42 @@ class StationUpdate(BaseModel):
     original_stop_name: Optional[str] = None
     original_stop_order: Optional[int] = None
 
+# ===== XML 匯入相關模型 =====
+class XMLStationData(BaseModel):
+    stop_name: str
+    latitude: float
+    longitude: float
+    stop_order: int
+    eta_from_start: int = 0
+    address: Optional[str] = None
+    direction: str  # "去程" 或 "回程"
+
+class XMLRouteData(BaseModel):
+    route_name: str
+    direction: str  # "單向" 或 "雙向"
+    start_stop: Optional[str] = None
+    end_stop: Optional[str] = None
+    status: int = 1
+    stations: List[XMLStationData]
+
+class XMLImportPreview(BaseModel):
+    """XML匯入預覽結果"""
+    total_routes: int
+    total_stations: int
+    conflicts: List[Dict]
+    warnings: List[str]
+    success: bool
+    message: str
+
+class XMLImportOptions(BaseModel):
+    """XML匯入選項"""
+    overwrite_existing: bool = False  # 是否覆蓋現有路線
+    auto_resolve_conflicts: bool = True  # 自動解決衝突
+    skip_invalid_data: bool = True  # 跳過無效資料
+
 @app.post("/api/route-stations/create")
 def create_route_station(station: StationCreate, current_user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    """創建新的路線站點"""
+    """創建新的路線站點 - 支援順序調整"""
     try:
         # 若前端未提供 route_name，嘗試以 route_id 去 bus_routes_total 查回
         if not station.route_name or str(station.route_name).strip() == '':
@@ -2401,21 +2225,135 @@ def create_route_station(station: StationCreate, current_user: AdminUser = Depen
             except Exception:
                 pass
 
-        # 自動騰位：同一路線下，將 >= 新順序 的站點順序整體 +1（允許直接指定順序）
-        try:
-            MySQL_Run(
-                """
-                UPDATE bus_route_stations
-                SET stop_order = stop_order + 1
-                WHERE route_id = %s AND stop_order >= %s
-                """,
-                (station.route_id, station.stop_order)
-            )
-        except Exception:
-            # 忽略騰位錯誤（若沒有唯一約束也可插入）
-            pass
+        # 檢查是否有特殊處理指令
+        station_data = station.dict() if hasattr(station, 'dict') else station.__dict__
+        replace_existing = station_data.get('replace_existing', False)
+        auto_reorder = station_data.get('auto_reorder', False)
+        
+        # 調試信息
+        print(f"調試: replace_existing={replace_existing}, auto_reorder={auto_reorder}")
+        print(f"調試: station_data keys: {list(station_data.keys())}")
 
-        # 參數化 INSERT
+        if replace_existing:
+            # 交換位置模式：先確保沒有衝突，再插入新站點
+            try:
+                # 查找目標位置的所有信息
+                conflict_result = MySQL_Run(
+                    """SELECT station_id, route_id, route_name, direction, stop_name, 
+                           latitude, longitude, stop_order, eta_from_start, address
+                       FROM bus_route_stations 
+                       WHERE route_id = %s AND direction = %s AND stop_order = %s""",
+                    (station.route_id, station.direction, station.stop_order)
+                )
+                
+                if conflict_result:
+                    conflict_station = conflict_result[0]
+                    
+                    # 找到最大順序並準備新位置
+                    max_order_result = MySQL_Run(
+                        "SELECT COALESCE(MAX(stop_order), 0) + 1 as next_order FROM bus_route_stations WHERE route_id = %s AND direction = %s",
+                        (station.route_id, station.direction)
+                    )
+                    next_order = max_order_result[0]['next_order'] if max_order_result else station.stop_order + 1
+                    
+                    # 第一步：直接刪除衝突站點
+                    MySQL_Run(
+                        "DELETE FROM bus_route_stations WHERE station_id = %s",
+                        (conflict_station['station_id'],)
+                    )
+                    
+                    # 第二步：插入新站點到目標位置
+                    MySQL_Run(
+                        """INSERT INTO bus_route_stations 
+                           (route_id, route_name, direction, stop_name, latitude, longitude, stop_order, eta_from_start, address)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (station.route_id, station.route_name, station.direction, station.stop_name,
+                         station.latitude, station.longitude, station.stop_order, station.eta_from_start, station.address or "")
+                    )
+                    
+                    # 第三步：重新插入原站點到新位置
+                    MySQL_Run(
+                        """INSERT INTO bus_route_stations 
+                           (route_id, route_name, direction, stop_name, latitude, longitude, stop_order, eta_from_start, address)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        (conflict_station['route_id'], conflict_station['route_name'], conflict_station['direction'], conflict_station['stop_name'],
+                         conflict_station['latitude'], conflict_station['longitude'], next_order, conflict_station['eta_from_start'], conflict_station['address'] or "")
+                    )
+                    
+                    # 記錄操作歷史（使用正確的枚舉值）
+                    MySQL_Run(
+                        """INSERT INTO station_order_history 
+                           (route_id, direction, operation_type, old_order, new_order, station_name, operator_id)
+                           VALUES (%s, %s, 'UPDATE', %s, %s, %s, %s)""",
+                        (station.route_id, station.direction, conflict_station['stop_order'], 
+                         next_order, conflict_station['stop_name'], current_user.admin_id)
+                    )
+                    
+                    # 記錄新增歷史
+                    MySQL_Run(
+                        """INSERT INTO station_order_history 
+                           (route_id, direction, operation_type, new_order, station_name, operator_id)
+                           VALUES (%s, %s, 'INSERT', %s, %s, %s)""",
+                        (station.route_id, station.direction, station.stop_order, station.stop_name, current_user.admin_id)
+                    )
+                    
+                    # 交換完成，直接返回，不執行後續的一般插入邏輯
+                    return {"message": "站點交換成功", "ok": True}
+                    
+            except Exception as e:
+                print(f"交換位置失敗: {e}")
+                raise HTTPException(status_code=500, detail=f"交換位置失敗: {str(e)}")
+
+        elif auto_reorder:
+            # 自動調整模式：安全地將後續站點順序 +1
+            try:
+                # 先獲取需要調整的站點列表（從大到小順序，避免約束衝突）
+                stations_to_update = MySQL_Run(
+                    """SELECT station_id, stop_order FROM bus_route_stations 
+                       WHERE route_id = %s AND direction = %s AND stop_order >= %s
+                       ORDER BY stop_order DESC""",
+                    (station.route_id, station.direction, station.stop_order)
+                )
+                
+                # 從最大順序開始逐個更新（避免中間狀態違反約束）
+                for station_to_update in stations_to_update:
+                    MySQL_Run(
+                        "UPDATE bus_route_stations SET stop_order = %s WHERE station_id = %s",
+                        (station_to_update['stop_order'] + 1, station_to_update['station_id'])
+                    )
+                
+                # 記錄批次調整歷史
+                MySQL_Run(
+                    """INSERT INTO station_order_history 
+                       (route_id, direction, operation_type, old_order, new_order, station_name, operator_id)
+                       VALUES (%s, %s, 'REORDER', %s, NULL, 'BATCH_ADJUSTMENT', %s)""",
+                    (station.route_id, station.direction, station.stop_order, current_user.admin_id)
+                )
+                
+                # 現在插入新站點到已調整的位置
+                MySQL_Run(
+                    """INSERT INTO bus_route_stations 
+                       (route_id, route_name, direction, stop_name, latitude, longitude, stop_order, eta_from_start, address)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (station.route_id, station.route_name, station.direction, station.stop_name,
+                     station.latitude, station.longitude, station.stop_order, station.eta_from_start, station.address or "")
+                )
+                
+                # 記錄新增歷史
+                MySQL_Run(
+                    """INSERT INTO station_order_history 
+                       (route_id, direction, operation_type, new_order, station_name, operator_id)
+                       VALUES (%s, %s, 'INSERT', %s, %s, %s)""",
+                    (station.route_id, station.direction, station.stop_order, station.stop_name, current_user.admin_id)
+                )
+                
+                # 插入調整完成，直接返回，不執行後續的一般插入邏輯
+                return {"message": "站點插入調整成功", "ok": True}
+            except Exception as e:
+                print(f"自動調整失敗: {e}")
+                raise HTTPException(status_code=500, detail=f"自動調整失敗: {str(e)}")
+
+        # 插入新站點
         sql = """
         INSERT INTO bus_route_stations 
         (route_id, route_name, direction, stop_name, latitude, longitude, stop_order, eta_from_start, address)
@@ -2433,11 +2371,21 @@ def create_route_station(station: StationCreate, current_user: AdminUser = Depen
             station.address or ""
         )
         MySQL_Run(sql, params)
+        
+        # 記錄新增歷史 (使用正確的欄位名稱)
+        MySQL_Run(
+            """INSERT INTO station_order_history 
+               (route_id, direction, operation_type, new_order, station_name, operator_id)
+               VALUES (%s, %s, 'INSERT', %s, %s, %s)""",
+            (station.route_id, station.direction, station.stop_order, station.stop_name, current_user.admin_id)
+        )
+        
         return {"message": "站點創建成功", "ok": True}
     except HTTPException:
         raise
     except Exception as e:
-        print(f"創建站點失敗: {str(e)}")  # 加入日誌
+        print(f"創建站點失敗: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"創建站點失敗: {str(e)}")
         raise HTTPException(status_code=500, detail=f"創建站點失敗: {str(e)}")
 
 @app.put("/api/route-stations/update")
@@ -2565,10 +2513,6 @@ def get_all_routes():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"獲取路線失敗: {str(e)}")
 
-class RouteStationsFilter(BaseModel):
-    route_id: Optional[int] = None
-    direction: Optional[str] = None
-
 @app.get("/api/route-stations")
 def get_route_stations(
     route_id: Optional[int] = None,
@@ -2633,8 +2577,64 @@ def get_route_stations(
         print(f"獲取站點失敗: {str(e)}")
         raise HTTPException(status_code=500, detail=f"獲取站點失敗: {str(e)}")
 
-# =================  Reservation APIs  =================
+@app.get("/api/route-stations/check-conflict")
+def check_station_order_conflict(
+    route_id: int,
+    direction: str,
+    stop_order: int,
+    current_user: AdminUser = Depends(get_current_user)
+):
+    """檢查站點順序是否衝突"""
+    try:
+        sql = """
+            SELECT station_id, stop_name, stop_order 
+            FROM bus_route_stations 
+            WHERE route_id = %s AND direction = %s AND stop_order = %s
+        """
+        
+        result = MySQL_Run(sql, (route_id, direction, stop_order))
+        
+        if result:
+            return {
+                "hasConflict": True,
+                "conflictStation": result[0]
+            }
+        else:
+            return {
+                "hasConflict": False,
+                "conflictStation": None
+            }
+            
+    except Exception as e:
+        print("check_station_order_conflict error:", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/route-stations/suggest-order")
+def suggest_station_order(
+    route_id: int,
+    direction: str,
+    current_user: AdminUser = Depends(get_current_user)
+):
+    """建議下一個可用的站點順序"""
+    try:
+        sql = """
+            SELECT COALESCE(MAX(stop_order), 0) + 1 as suggested_order
+            FROM bus_route_stations 
+            WHERE route_id = %s AND direction = %s
+        """
+        
+        result = MySQL_Run(sql, (route_id, direction))
+        suggested_order = result[0]['suggested_order'] if result else 1
+        
+        return {
+            "suggestedOrder": suggested_order
+        }
+            
+    except Exception as e:
+        print("suggest_station_order error:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =================  Reservation APIs  =================
 def _ensure_admin_or_super(db: Session, current_user: AdminUser):
     role = get_role_by_id(db, current_user.role_id)
     if not role or (role.role_name or '').lower() not in ('super_admin', 'admin'):
@@ -2765,10 +2765,6 @@ def delete_reservation(reservation_id: int, current_user: AdminUser = Depends(ge
     except Exception as e:
         print("delete_reservation error:", e)
         raise HTTPException(status_code=500, detail=str(e))
-
-# =================  Car Resource APIs  =================
-
-# =================  Members APIs  =================
 
 def _serialize_member(row: dict):
     data = dict(row)
@@ -3006,7 +3002,6 @@ def get_car_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 # ========== 會員管理：權限保護 ==========
-
 @app.post("/Create_users")
 def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: AdminUser = Depends(get_current_user)):
     # 僅 super_admin 與 admin 可新增會員；dispatcher 禁止
@@ -3103,5 +3098,348 @@ def delete_user(user_id: int, db: Session = Depends(get_db), current_user: Admin
     db.commit()
     return {"message": "用戶刪除成功"}
 
-if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8500, reload=True)
+# ===== XML 匯入功能 API =====
+def parse_xml_content(xml_content: str) -> List[XMLRouteData]:
+    """解析XML內容並轉換為路線資料"""
+    try:
+        root = ET.fromstring(xml_content)
+        routes = []
+        
+        # 支援多種XML格式
+        route_elements = root.findall('.//route')
+        if not route_elements:
+            # 嘗試其他可能的結構
+            route_elements = root.findall('./route') or root.findall('route')
+        
+        for route_elem in route_elements:
+            # 解析路線基本資訊
+            route_name = route_elem.find('route_name')
+            if route_name is None or not route_name.text:
+                continue
+                
+            direction = route_elem.find('direction')
+            direction_text = direction.text if direction is not None else "雙向"
+            
+            start_stop = route_elem.find('start_stop')
+            start_stop_text = start_stop.text if start_stop is not None else None
+            
+            end_stop = route_elem.find('end_stop')
+            end_stop_text = end_stop.text if end_stop is not None else None
+            
+            status = route_elem.find('status')
+            status_value = int(status.text) if status is not None and status.text.isdigit() else 1
+            
+            # 解析站點資訊
+            stations = []
+            station_elements = route_elem.findall('.//station')
+            
+            for station_elem in station_elements:
+                try:
+                    stop_name = station_elem.find('stop_name')
+                    if stop_name is None or not stop_name.text:
+                        continue
+                    
+                    latitude = station_elem.find('latitude')
+                    longitude = station_elem.find('longitude')
+                    stop_order = station_elem.find('stop_order')
+                    
+                    if latitude is None or longitude is None or stop_order is None:
+                        continue
+                    
+                    # 取得方向資訊（優先從屬性，其次從元素）
+                    station_direction = station_elem.get('direction')
+                    if not station_direction:
+                        dir_elem = station_elem.find('direction')
+                        station_direction = dir_elem.text if dir_elem is not None else "去程"
+                    
+                    eta_elem = station_elem.find('eta_from_start')
+                    eta_value = int(eta_elem.text) if eta_elem is not None and eta_elem.text.isdigit() else 0
+                    
+                    address_elem = station_elem.find('address')
+                    address_value = address_elem.text if address_elem is not None else None
+                    
+                    station_data = XMLStationData(
+                        stop_name=stop_name.text.strip(),
+                        latitude=float(latitude.text),
+                        longitude=float(longitude.text),
+                        stop_order=int(stop_order.text),
+                        eta_from_start=eta_value,
+                        address=address_value,
+                        direction=station_direction
+                    )
+                    stations.append(station_data)
+                    
+                except (ValueError, AttributeError) as e:
+                    print(f"跳過無效站點資料: {e}")
+                    continue
+            
+            if stations:  # 只有當有有效站點時才添加路線
+                route_data = XMLRouteData(
+                    route_name=route_name.text.strip(),
+                    direction=direction_text,
+                    start_stop=start_stop_text,
+                    end_stop=end_stop_text,
+                    status=status_value,
+                    stations=stations
+                )
+                routes.append(route_data)
+        
+        return routes
+        
+    except ET.ParseError as e:
+        raise HTTPException(status_code=400, detail=f"XML格式錯誤: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"解析XML失敗: {str(e)}")
+
+def validate_xml_route_data(route_data: XMLRouteData) -> List[str]:
+    """驗證單一路線資料並返回警告訊息"""
+    warnings = []
+    
+    # 檢查路線名稱
+    if not route_data.route_name or route_data.route_name.strip() == "":
+        warnings.append("路線名稱不能為空")
+    
+    # 檢查方向
+    if route_data.direction not in ["單向", "雙向"]:
+        warnings.append(f"路線方向 '{route_data.direction}' 無效，應為 '單向' 或 '雙向'")
+    
+    # 檢查站點
+    if not route_data.stations:
+        warnings.append("路線沒有站點資料")
+    else:
+        station_orders = {}
+        for station in route_data.stations:
+            # 檢查站點方向
+            if station.direction not in ["去程", "回程"]:
+                warnings.append(f"站點 '{station.stop_name}' 方向 '{station.direction}' 無效，應為 '去程' 或 '回程'")
+            
+            # 檢查座標範圍（台灣地區）
+            if not (21.5 <= station.latitude <= 25.5):
+                warnings.append(f"站點 '{station.stop_name}' 緯度 {station.latitude} 超出台灣範圍")
+            if not (119.5 <= station.longitude <= 122.5):
+                warnings.append(f"站點 '{station.stop_name}' 經度 {station.longitude} 超出台灣範圍")
+            
+            # 檢查順序重複
+            direction_key = f"{station.direction}_{station.stop_order}"
+            if direction_key in station_orders:
+                warnings.append(f"站點順序衝突：{station.direction} 第 {station.stop_order} 站重複")
+            station_orders[direction_key] = station.stop_name
+    
+    return warnings
+
+@app.post("/api/xml/upload")
+async def upload_xml_file(file: UploadFile = File(...), current_user: AdminUser = Depends(get_current_user)):
+    """上傳XML檔案並回傳解析結果"""
+    try:
+        # 檢查檔案類型
+        if not file.filename.lower().endswith('.xml'):
+            raise HTTPException(status_code=400, detail="請上傳XML檔案")
+        
+        # 讀取檔案內容
+        content = await file.read()
+        xml_content = content.decode('utf-8')
+        
+        # 解析XML
+        routes = parse_xml_content(xml_content)
+        
+        if not routes:
+            raise HTTPException(status_code=400, detail="XML檔案中沒有找到有效的路線資料")
+        
+        # 驗證資料
+        all_warnings = []
+        total_stations = 0
+        
+        for route in routes:
+            warnings = validate_xml_route_data(route)
+            if warnings:
+                all_warnings.extend([f"路線 '{route.route_name}': {w}" for w in warnings])
+            total_stations += len(route.stations)
+        
+        return {
+            "success": True,
+            "message": "XML檔案解析成功",
+            "total_routes": len(routes),
+            "total_stations": total_stations,
+            "warnings": all_warnings,
+            "routes": [route.dict() for route in routes]
+        }
+        
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="檔案編碼錯誤，請確保使用UTF-8編碼")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"處理檔案失敗: {str(e)}")
+
+@app.post("/api/xml/preview")
+def preview_xml_import(routes_data: List[XMLRouteData], current_user: AdminUser = Depends(get_current_user)):
+    """預覽XML匯入結果，檢查衝突"""
+    try:
+        conflicts = []
+        warnings = []
+        total_stations = 0
+        
+        for route_data in routes_data:
+            # 驗證路線資料
+            route_warnings = validate_xml_route_data(route_data)
+            if route_warnings:
+                warnings.extend([f"路線 '{route_data.route_name}': {w}" for w in route_warnings])
+            
+            # 檢查路線名稱是否已存在
+            existing_route = MySQL_Run("SELECT route_id, route_name FROM bus_routes_total WHERE route_name = %s", (route_data.route_name,))
+            if existing_route:
+                conflicts.append({
+                    "type": "route_exists",
+                    "route_name": route_data.route_name,
+                    "existing_route_id": existing_route[0]["route_id"],
+                    "message": f"路線 '{route_data.route_name}' 已存在"
+                })
+            
+            total_stations += len(route_data.stations)
+        
+        return XMLImportPreview(
+            total_routes=len(routes_data),
+            total_stations=total_stations,
+            conflicts=conflicts,
+            warnings=warnings,
+            success=len(conflicts) == 0,
+            message="預覽完成" if len(conflicts) == 0 else f"發現 {len(conflicts)} 個衝突"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"預覽失敗: {str(e)}")
+
+@app.post("/api/xml/import")
+def import_xml_data(request_data: dict, current_user: AdminUser = Depends(get_current_user)):
+    """執行XML資料匯入"""
+    try:
+        # 從請求中提取資料
+        routes_data = [XMLRouteData(**route) for route in request_data.get('routes_data', [])]
+        options_dict = request_data.get('options', {})
+        options = XMLImportOptions(**options_dict)
+        
+        import_results = []
+        total_imported_routes = 0
+        total_imported_stations = 0
+        errors = []
+        
+        for route_data in routes_data:
+            try:
+                # 檢查路線是否已存在
+                existing_route = MySQL_Run("SELECT route_id FROM bus_routes_total WHERE route_name = %s", (route_data.route_name,))
+                
+                route_id = None
+                if existing_route:
+                    if options.overwrite_existing:
+                        # 刪除現有路線和站點
+                        route_id = existing_route[0]["route_id"]
+                        MySQL_Run("DELETE FROM bus_route_stations WHERE route_id = %s", (route_id,))
+                        MySQL_Run("DELETE FROM bus_routes_total WHERE route_id = %s", (route_id,))
+                    else:
+                        errors.append(f"路線 '{route_data.route_name}' 已存在，跳過匯入")
+                        continue
+                
+                # 建立路線
+                route_cols = ['route_name', 'stop_count', 'direction', 'start_stop', 'end_stop', 'status']
+                route_values = [
+                    route_data.route_name,
+                    len(route_data.stations),
+                    route_data.direction,
+                    route_data.start_stop,
+                    route_data.end_stop,
+                    route_data.status
+                ]
+                
+                placeholders = ', '.join(['%s'] * len(route_values))
+                sql = f"INSERT INTO bus_routes_total ({', '.join(route_cols)}) VALUES ({placeholders})"
+                result = MySQL_Run(sql, route_values)
+                
+                if isinstance(result, dict) and 'lastrowid' in result:
+                    route_id = result['lastrowid']
+                else:
+                    # 如果沒有取得lastrowid，查詢路線ID
+                    route_query = MySQL_Run("SELECT route_id FROM bus_routes_total WHERE route_name = %s", (route_data.route_name,))
+                    if route_query:
+                        route_id = route_query[0]["route_id"]
+                
+                if not route_id:
+                    errors.append(f"建立路線 '{route_data.route_name}' 失敗")
+                    continue
+                
+                # 建立站點
+                stations_imported = 0
+                for station in route_data.stations:
+                    try:
+                        station_cols = ['route_id', 'route_name', 'direction', 'stop_name', 'latitude', 'longitude', 'stop_order', 'eta_from_start', 'address']
+                        station_values = [
+                            route_id,
+                            route_data.route_name,
+                            station.direction,
+                            station.stop_name,
+                            station.latitude,
+                            station.longitude,
+                            station.stop_order,
+                            station.eta_from_start,
+                            station.address
+                        ]
+                        
+                        station_placeholders = ', '.join(['%s'] * len(station_values))
+                        station_sql = f"INSERT INTO bus_route_stations ({', '.join(station_cols)}) VALUES ({station_placeholders})"
+                        MySQL_Run(station_sql, station_values)
+                        stations_imported += 1
+                        
+                    except Exception as station_error:
+                        if options.skip_invalid_data:
+                            errors.append(f"站點 '{station.stop_name}' 匯入失敗: {str(station_error)}")
+                        else:
+                            raise station_error
+                
+                import_results.append({
+                    "route_name": route_data.route_name,
+                    "route_id": route_id,
+                    "stations_imported": stations_imported,
+                    "success": True
+                })
+                total_imported_routes += 1
+                total_imported_stations += stations_imported
+                
+            except Exception as route_error:
+                if options.skip_invalid_data:
+                    errors.append(f"路線 '{route_data.route_name}' 匯入失敗: {str(route_error)}")
+                    import_results.append({
+                        "route_name": route_data.route_name,
+                        "success": False,
+                        "error": str(route_error)
+                    })
+                else:
+                    raise route_error
+        
+        return {
+            "success": True,
+            "message": f"匯入完成：{total_imported_routes} 條路線，{total_imported_stations} 個站點",
+            "total_imported_routes": total_imported_routes,
+            "total_imported_stations": total_imported_stations,
+            "results": import_results,
+            "errors": errors
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"匯入失敗: {str(e)}")
+
+# ========== 同時開啟前後端 ==========
+app.mount('/home', StaticFiles(directory='dist', html=True), name='client')
+@app.get("/home", response_class=FileResponse)
+async def serve_home_root():
+    index_path = Path("dist/index.html")
+    if index_path.exists():
+        return FileResponse(index_path)
+    raise HTTPException(status_code=404, detail="Frontend build not found")
+
+@app.get("/home/{full_path:path}", response_class=FileResponse)
+async def serve_home_routes(full_path: str):
+    base_dir = Path("dist")
+    candidate = base_dir / full_path
+    index_path = base_dir / "index.html"
+    if candidate.is_file():
+        return FileResponse(candidate)
+    if index_path.exists():
+        return FileResponse(index_path)
+    raise HTTPException(status_code=404, detail="Frontend build not found")

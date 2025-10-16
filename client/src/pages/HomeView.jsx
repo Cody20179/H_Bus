@@ -1,7 +1,6 @@
 ﻿import React, { useState, useEffect, useRef } from 'react'
 import MyReservations from '../components/MyReservations'
 import { getRoutes, getRouteStops } from '../services/api'
-import { getMyReservations, cancelReservation } from '../services/api'
 import { useNavigate } from 'react-router-dom'
 
 export default function HomeView({ onAction, user, onNavigateRoutes }) {
@@ -16,7 +15,6 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [tick, setTick] = useState(0)
-  const [refreshing, setRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [pressedKey, setPressedKey] = useState(null)
 
@@ -24,6 +22,15 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
   const AUTO_REFRESH_MS = 30000 // 30s
   const interactingRef = useRef(false)
   const interactTimer = useRef(null)
+  const [countdown, setCountdown] = useState(30)
+  const nextRefreshRef = useRef(Date.now() + AUTO_REFRESH_MS)
+
+  // ✅ 新增：初始化 countdown，讓畫面一開始就有數字
+  useEffect(() => {
+    nextRefreshRef.current = Date.now() + AUTO_REFRESH_MS
+    setCountdown(Math.ceil(AUTO_REFRESH_MS / 1000))
+  }, [])
+
 
   // 標記使用者互動，避免 refresh jank
   useEffect(() => {
@@ -46,16 +53,37 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
     }
   }, [])
 
-  // 定時更新 tick
   useEffect(() => {
+    nextRefreshRef.current = Date.now() + AUTO_REFRESH_MS
+    setCountdown(Math.ceil(AUTO_REFRESH_MS / 1000))
+
     const id = setInterval(() => {
       if (document.hidden) return
       if (interactingRef.current) return
       if (searchOpen) return
+
+      nextRefreshRef.current = Date.now() + AUTO_REFRESH_MS
       setTick((t) => (t + 1) % 1_000_000)
+      setCountdown(Math.ceil(AUTO_REFRESH_MS / 1000))
     }, AUTO_REFRESH_MS)
+
     return () => clearInterval(id)
   }, [searchOpen])
+
+
+  useEffect(() => {
+    const tickCountdown = () => {
+    if (document.hidden) return
+      const remain = nextRefreshRef.current - Date.now()
+      setCountdown(Math.max(0, Math.ceil(remain / 1000)))
+    }
+
+    tickCountdown()                      // 先跑一次，避免等一秒才顯示
+    const timer = setInterval(tickCountdown, 1000)
+    return () => clearInterval(timer)
+  }, [searchOpen])
+
+
 
   useEffect(() => {
     let cancelled = false
@@ -121,7 +149,6 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
       } finally {
         if (!cancelled) {
           setLoading(false)
-          setRefreshing(false)
         }
       }
     }
@@ -189,14 +216,18 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
       </section>
 
       <section className="card">
-        <div className="card-title">
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span>即將到站</span>
-          <button
-            className="link-btn"
-            onClick={() => { setRefreshing(true); setTick((t) => t + 1) }}
-            disabled={refreshing}
-          >{refreshing ? '更新中…' : '更新'}</button>
+          <span
+            className="muted small"
+            style={{ marginLeft: 'auto', fontWeight: 'normal' }}
+          >
+            {searchOpen || countdown === null
+              ? '自動更新暫停'
+              : `自動更新倒數 ${countdown} 秒`}
+          </span>
         </div>
+
         <div className="arrival-list">
           {loading && <div className="muted small">載入中…</div>}
           {error && <div className="muted small" style={{ color: '#c25' }}>{error}</div>}

@@ -138,73 +138,133 @@
           <button class="close-btn" @click="closeModal">×</button>
         </div>
         <form @submit.prevent="save" class="modal-form">
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">用戶ID</label>
-              <input v-model.number="form.user_id" type="number" class="form-input" min="1" />
+          <!-- 編輯模式下的訂單內容區塊 -->
+          <div v-if="editMode" class="order-info-section">
+            <div class="section-header">
+              <h3 class="section-title">確認訂單內容</h3>
+              <button type="button" class="btn-modify" @click="toggleOrderEdit" :disabled="!canWrite">
+                {{ isOrderEditable ? '鎖定' : '修正' }}
+              </button>
             </div>
-            <div class="form-group">
-              <label class="form-label">預約時間</label>
-              <input v-model="form.booking_time" type="datetime-local" class="form-input" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">人數</label>
-              <input v-model.number="form.booking_number" type="number" min="1" class="form-input" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">付款方式</label>
-              <input v-model="form.payment_method" type="text" class="form-input" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">起點</label>
-              <input v-model="form.booking_start_station_name" type="text" class="form-input" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">終點</label>
-              <input v-model="form.booking_end_station_name" type="text" class="form-input" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">付款狀態</label>
-              <select v-model="form.payment_status" class="form-select">
-                <option value="pending">未付款</option>
-                <option value="paid">已付款</option>
-                <option value="failed">失敗</option>
-                <option value="refunded">已退款</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">審核狀態</label>
-              <select v-model="form.review_status" class="form-select">
-                <option value="pending">審核中</option>
-                <option value="approved">已核准</option>
-                <option value="rejected">已拒絕</option>
-                <option value="canceled">已取消</option>
-              </select>
+            <div class="order-info-content" :class="{ 'locked': !isOrderEditable }">
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">用戶ID</label>
+                  <input v-model.number="form.user_id" type="number" class="form-input" min="1" :disabled="editMode && !isOrderEditable" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">預約時間</label>
+                  <input v-model="form.booking_time" type="datetime-local" class="form-input" :disabled="editMode && !isOrderEditable" />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">人數</label>
+                  <input v-model.number="form.booking_number" type="number" min="1" class="form-input" :disabled="editMode && !isOrderEditable" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">付款方式</label>
+                  <input v-model="form.payment_method" type="text" class="form-input" :disabled="editMode && !isOrderEditable" />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">起點</label>
+                  <input v-model="form.booking_start_station_name" type="text" class="form-input" :disabled="editMode && !isOrderEditable" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">終點</label>
+                  <input v-model="form.booking_end_station_name" type="text" class="form-input" :disabled="editMode && !isOrderEditable" />
+                </div>
+              </div>
             </div>
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">派車狀態</label>
-              <select v-model="form.dispatch_status" class="form-select">
-                <option value="not_assigned">未派車</option>
-                <option value="assigned">已派車</option>
-              </select>
+
+          <!-- 新增模式下的基本資訊 -->
+          <div v-if="!editMode">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">用戶ID</label>
+                <input v-model.number="form.user_id" type="number" class="form-input" min="1" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">預約時間</label>
+                <input v-model="form.booking_time" type="datetime-local" class="form-input" />
+              </div>
             </div>
-            <div class="form-group full-width">
-              <label class="form-label">付款紀錄</label>
-              <textarea v-model="form.payment_record" class="form-textarea" rows="3"></textarea>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">人數</label>
+                <input v-model.number="form.booking_number" type="number" min="1" class="form-input" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">付款方式</label>
+                <input v-model="form.payment_method" type="text" class="form-input" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">起點</label>
+                <input v-model="form.booking_start_station_name" type="text" class="form-input" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">終點</label>
+                <input v-model="form.booking_end_station_name" type="text" class="form-input" />
+              </div>
+            </div>
+          </div>
+
+          <!-- 狀態管理區塊 -->
+          <div class="status-section">
+            <div v-if="editMode" class="section-header">
+              <h3 class="section-title">狀態管理</h3>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">付款狀態</label>
+                <div class="payment-status-display">
+                  <span class="status-badge" :class="form.payment_status">{{ mapPay(form.payment_status) }}</span>
+                  <small class="status-note">從資料庫讀取，無法手動修改</small>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">審核狀態</label>
+                <select v-model="form.review_status" class="form-select">
+                  <option value="pending">審核中</option>
+                  <option value="approved">已核准</option>
+                  <option value="rejected">已拒絕</option>
+                  <option value="canceled">已取消</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">派車狀態</label>
+                <select v-model="form.dispatch_status" class="form-select">
+                  <option value="not_assigned">未派車</option>
+                  <option value="assigned">已派車</option>
+                </select>
+              </div>
+              <div class="form-group full-width">
+                <label class="form-label">付款紀錄</label>
+                <textarea v-model="form.payment_record" class="form-textarea" rows="3"></textarea>
+              </div>
             </div>
           </div>
 
           <div class="form-actions">
             <button type="button" class="btn-secondary" @click="closeModal">取消</button>
-            <button type="submit" class="btn-primary" :disabled="saving">{{ saving ? '儲存中...' : (editMode ? '更新' : '新增') }}</button>
+            <button type="submit" class="btn-primary" :disabled="saving">
+              {{ saving ? '儲存中...' : (editMode ? (isOrderEditable ? '更新' : '更新狀態') : '新增') }}
+            </button>
+          </div>
+          
+          <!-- 鎖定狀態提示 -->
+          <div v-if="editMode && !isOrderEditable" class="lock-notice">
+            <div class="notice-content">
+              <span class="notice-icon">🔒</span>
+              <span class="notice-text">訂單基本資訊已鎖定，僅可修改狀態管理欄位。如需修正訂單內容，請點擊上方「修正」按鈕。</span>
+            </div>
           </div>
         </form>
       </div>
@@ -305,6 +365,7 @@ function go(p:number){ if (p>=1 && p<=totalPages.value){ page.value = p; fetchLi
 
 const showModal = ref(false)
 const editMode = ref(false)
+const isOrderEditable = ref(false) // 控制訂單內容是否可編輯
 const form = ref<any>({
   user_id: null,
   booking_time: '',
@@ -318,9 +379,16 @@ const form = ref<any>({
   dispatch_status: 'not_assigned',
 })
 
-function openCreate(){ if(!canWrite.value) return; editMode.value=false; resetForm(); showModal.value=true }
-function openEdit(r:any){ if(!canWrite.value) return; editMode.value=true; form.value = { ...r, booking_time: toLocalInput(r.booking_time) } ; showModal.value=true }
-function closeModal(){ showModal.value=false; editMode.value=false }
+function openCreate(){ if(!canWrite.value) return; editMode.value=false; isOrderEditable.value=true; resetForm(); showModal.value=true }
+function openEdit(r:any){ 
+  if(!canWrite.value) return; 
+  editMode.value=true; 
+  isOrderEditable.value=false; 
+  form.value = { ...r, booking_time: toLocalInput(r.booking_time) }
+  showModal.value=true 
+}
+function closeModal(){ showModal.value=false; editMode.value=false; isOrderEditable.value=false }
+function toggleOrderEdit(){ isOrderEditable.value = !isOrderEditable.value }
 function resetForm(){
   form.value = { user_id:null, booking_time:'', booking_number:null, booking_start_station_name:'', booking_end_station_name:'', payment_method:'', payment_record:'', payment_status:'pending', review_status:'pending', dispatch_status:'not_assigned' }
 }
@@ -335,7 +403,23 @@ async function save(){
   if(!canWrite.value) return
   saving.value = true
   try{
-    const payload = { ...form.value }
+    let payload = { ...form.value }
+    
+    // 如果是編輯模式且訂單內容被鎖定，則排除訂單基本資訊欄位
+    if (editMode.value && !isOrderEditable.value) {
+      // 只保留可編輯的狀態管理欄位
+      const editableFields = ['review_status', 'dispatch_status', 'payment_record']
+      const statusPayload: any = { reservation_id: form.value.reservation_id }
+      
+      editableFields.forEach(field => {
+        if (form.value[field] !== undefined) {
+          statusPayload[field] = form.value[field]
+        }
+      })
+      
+      payload = statusPayload
+    }
+    
     if (!payload.booking_time) delete payload.booking_time
     const url = editMode.value ? `/api/reservations/${form.value.reservation_id}` : '/api/reservations'
     const method = editMode.value ? 'PUT' : 'POST'
@@ -443,6 +527,113 @@ onMounted(() => {
 .delete-modal { max-width:400px; }
 .modal-body { padding:24px; text-align:center; }
 .warning-text { color:#dc2626; font-weight:500; margin-top:8px; }
+
+/* 新增樣式 */
+.order-info-section {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.status-section {
+  background: white;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: #ffffff;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #495057;
+}
+
+.btn-modify {
+  padding: 6px 12px;
+  border: 2px solid #6c757d;
+  background: white;
+  color: #6c757d;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-modify:hover {
+  background: #6c757d;
+  color: white;
+}
+
+.btn-modify:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.order-info-content {
+  padding: 20px;
+  background: white;
+  transition: all 0.3s ease;
+}
+
+.order-info-content.locked {
+  background: #f8f9fa;
+  opacity: 0.8;
+}
+
+.order-info-content.locked .form-input:disabled,
+.order-info-content.locked .form-select:disabled,
+.order-info-content.locked .form-textarea:disabled {
+  background: #e9ecef;
+  color: #6c757d;
+  cursor: not-allowed;
+}
+
+.lock-notice {
+  margin-top: 16px;
+  padding: 12px 24px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 8px;
+}
+
+.notice-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notice-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.notice-text {
+  font-size: 13px;
+  color: #856404;
+  line-height: 1.4;
+}
+
+.payment-status-display {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-note {
+  color: #6c757d;
+  font-size: 12px;
+  font-style: italic;
+}
 
 @media (max-width: 768px) {
   .route-management { padding:10px; }

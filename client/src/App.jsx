@@ -156,7 +156,6 @@ export default function App() {
         </AnimatePresence>
         {showNearby && <NearbyStations onClose={() => setShowNearby(false)} />}
       </div>
-      {location.pathname === '/' && <FontSizeSwitcher />}
       <BottomNav onNavClick={handleNav} active={activeLabel} />
     </div>
   )

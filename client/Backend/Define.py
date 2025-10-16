@@ -27,3 +27,17 @@ class ReservationReq(BaseModel):
 class CancelReq(BaseModel):
     reservation_id: int
     cancel_reason: str 
+
+# === 資料模型 ===
+class CarBackupInsert(BaseModel):
+    rcv_dt: Optional[str] = None 
+    car_licence: str
+    Gpstime: str
+    X: float
+    Y: float
+    Speed: int
+    Deg: int
+    acc: Optional[bool] = None     # ← 改成布林
+    route: Optional[str] = None
+    direction: Optional[str] = None
+    Current_Loaction: Optional[str] = None
