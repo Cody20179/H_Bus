@@ -1,2 +1,0 @@
-﻿                  <button className={`btn ${selectedDir === '?餌?' ? 'btn-blue' : ''}`} onClick={() => setSelectedDir('?餌?')}>?餌?</button>
-                  <button className={`btn ${selectedDir === '??' ? 'btn-blue' : ''}`} onClick={() => setSelectedDir('??')}>??</button>

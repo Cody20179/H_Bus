@@ -1,7 +1,0 @@
-﻿  // ?孵????脣?嚗?潔??航儘霅??身?箏蝔??寞A
-  useEffect(() => {
-    const t = String(selectedDir || '').trim()
-    if (!/(?誡餈?敺|0|1)/.test(t)) {
-      setSelectedDir('?餌?')
-    }
-  }, [selectedDir])
