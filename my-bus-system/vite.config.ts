@@ -28,6 +28,10 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/All_Route': {
+        target: 'http://localhost:8600',
+        changeOrigin: true,
+      },
     },
   },
   resolve: {

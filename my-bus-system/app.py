@@ -162,7 +162,7 @@ def _ensure_datetime_window(start: date, end: date) -> Tuple[datetime, datetime]
 load_dotenv()
 
 # MySQL 資料庫設定
-DATABASE_URL = f"mysql+pymysql://root:109109@192.168.0.126:3307/bus_system"
+#DATABASE_URL = f"mysql+pymysql://root:109109@192.168.0.126:3307/bus_system"
 DB_USER = os.getenv("MYSQL_USER", "root")
 DB_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
 DB_HOST = os.getenv("MYSQL_HOST", "localhost")
@@ -3485,6 +3485,8 @@ def list_schedules(
     route_no: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    time_from: Optional[str] = None,
+    time_to: Optional[str] = None,
     operation_status: Optional[str] = None,
     sort: Optional[str] = 'date_desc',
     current_user: AdminUser = Depends(get_current_user)
@@ -3511,6 +3513,14 @@ def list_schedules(
         if date_to:
             conditions.append("rs.date <= %s")
             params.append(date_to)
+            
+        if time_from:
+            conditions.append("rs.departure_time >= %s")
+            params.append(time_from)
+            
+        if time_to:
+            conditions.append("rs.departure_time <= %s")
+            params.append(time_to)
             
         if operation_status:
             conditions.append("rs.operation_status = %s")
@@ -3593,32 +3603,32 @@ def create_schedule(payload: ScheduleCreate, current_user: AdminUser = Depends(g
             if car_check[0]['car_status'] not in ['service']:
                 raise HTTPException(status_code=400, detail=f"車牌 {payload.license_plate} 目前狀態為 {car_check[0]['car_status']}，無法派車")
             
-            # 檢查衝突：同一天同一車牌不能在多條路線
+            # 檢查衝突：同一時間同一車牌不能重複使用
             license_conflict = MySQL_Run("""
                 SELECT COUNT(*) as cnt FROM route_schedule 
-                WHERE license_plate = %s AND date = %s
-            """, (payload.license_plate, payload.schedule_date))
+                WHERE license_plate = %s AND date = %s AND departure_time = %s
+            """, (payload.license_plate, payload.schedule_date, payload.departure_time))
             
             if license_conflict and license_conflict[0]['cnt'] > 0:
-                raise HTTPException(status_code=400, detail=f"車牌 {payload.license_plate} 在 {payload.schedule_date} 當天已有其他路線排班")
+                raise HTTPException(status_code=400, detail=f"車牌 {payload.license_plate} 在 {payload.schedule_date} {payload.departure_time} 時段已有排班")
             
-            # 檢查衝突：同一天同一駕駛員不能在多條路線
+            # 檢查衝突：同一時間同一駕駛員不能重複排班
             driver_conflict = MySQL_Run("""
                 SELECT COUNT(*) as cnt FROM route_schedule 
-                WHERE driver_name = %s AND date = %s
-            """, (payload.driver_name, payload.schedule_date))
+                WHERE driver_name = %s AND date = %s AND departure_time = %s
+            """, (payload.driver_name, payload.schedule_date, payload.departure_time))
             
             if driver_conflict and driver_conflict[0]['cnt'] > 0:
-                raise HTTPException(status_code=400, detail=f"駕駛員 {payload.driver_name} 在 {payload.schedule_date} 當天已有其他路線排班")
+                raise HTTPException(status_code=400, detail=f"駕駛員 {payload.driver_name} 在 {payload.schedule_date} {payload.departure_time} 時段已有排班")
             
-            # 檢查衝突：同一天同一員工編號不能在多條路線
+            # 檢查衝突：同一時間同一員工編號不能重複排班
             employee_conflict = MySQL_Run("""
                 SELECT COUNT(*) as cnt FROM route_schedule 
-                WHERE employee_id = %s AND date = %s
-            """, (payload.employee_id, payload.schedule_date))
+                WHERE employee_id = %s AND date = %s AND departure_time = %s
+            """, (payload.employee_id, payload.schedule_date, payload.departure_time))
             
             if employee_conflict and employee_conflict[0]['cnt'] > 0:
-                raise HTTPException(status_code=400, detail=f"員工編號 {payload.employee_id} 在 {payload.schedule_date} 當天已有其他路線排班")
+                raise HTTPException(status_code=400, detail=f"員工編號 {payload.employee_id} 在 {payload.schedule_date} {payload.departure_time} 時段已有排班")
         
         # 插入資料（需要將schedule_date轉換為date欄位，過濾None值）
         data = payload.dict(exclude_none=True)
@@ -3686,35 +3696,38 @@ def update_schedule(schedule_id: int, payload: ScheduleUpdate, current_user: Adm
             check_driver = data.get('driver_name', current_schedule['driver_name'])
             check_employee = data.get('employee_id', current_schedule['employee_id'])
             
+            # 準備檢查衝突需要的發車時間
+            check_departure_time = data.get('departure_time', current_schedule['departure_time'])
+            
             # 只有在有車牌資料時才檢查車牌衝突
-            if check_license:
+            if check_license and check_departure_time:
                 license_conflict = MySQL_Run("""
                     SELECT COUNT(*) as cnt FROM route_schedule 
-                    WHERE license_plate = %s AND date = %s AND id != %s
-                """, (check_license, check_date, schedule_id))
+                    WHERE license_plate = %s AND date = %s AND departure_time = %s AND id != %s
+                """, (check_license, check_date, check_departure_time, schedule_id))
                 
                 if license_conflict and license_conflict[0]['cnt'] > 0:
-                    raise HTTPException(status_code=400, detail=f"車牌 {check_license} 在 {check_date} 當天已有其他路線排班")
+                    raise HTTPException(status_code=400, detail=f"車牌 {check_license} 在 {check_date} {check_departure_time} 時段已有排班")
             
             # 只有在有駕駛員資料時才檢查駕駛員衝突
-            if check_driver:
+            if check_driver and check_departure_time:
                 driver_conflict = MySQL_Run("""
                     SELECT COUNT(*) as cnt FROM route_schedule 
-                    WHERE driver_name = %s AND date = %s AND id != %s
-                """, (check_driver, check_date, schedule_id))
+                    WHERE driver_name = %s AND date = %s AND departure_time = %s AND id != %s
+                """, (check_driver, check_date, check_departure_time, schedule_id))
                 
                 if driver_conflict and driver_conflict[0]['cnt'] > 0:
-                    raise HTTPException(status_code=400, detail=f"駕駕駛員 {check_driver} 在 {check_date} 當天已有其他路線排班")
+                    raise HTTPException(status_code=400, detail=f"駕駛員 {check_driver} 在 {check_date} {check_departure_time} 時段已有排班")
             
             # 只有在有員工編號資料時才檢查員工編號衝突
-            if check_employee:
+            if check_employee and check_departure_time:
                 employee_conflict = MySQL_Run("""
                     SELECT COUNT(*) as cnt FROM route_schedule 
-                    WHERE employee_id = %s AND date = %s AND id != %s
-                """, (check_employee, check_date, schedule_id))
+                    WHERE employee_id = %s AND date = %s AND departure_time = %s AND id != %s
+                """, (check_employee, check_date, check_departure_time, schedule_id))
                 
                 if employee_conflict and employee_conflict[0]['cnt'] > 0:
-                    raise HTTPException(status_code=400, detail=f"員工編號 {check_employee} 在 {check_date} 當天已有其他路線排班")
+                    raise HTTPException(status_code=400, detail=f"員工編號 {check_employee} 在 {check_date} {check_departure_time} 時段已有排班")
         
         # 更新資料
         sets = []
@@ -3758,7 +3771,7 @@ def delete_schedule(schedule_id: int, current_user: AdminUser = Depends(get_curr
 def get_schedule_routes(current_user: AdminUser = Depends(get_current_user)):
     """取得可用路線選項"""
     try:
-        routes = MySQL_Run("SELECT route_id, route_name FROM bus_routes_total WHERE status = 1 ORDER BY route_id")
+        routes = MySQL_Run("SELECT route_id, route_name FROM bus_routes_total WHERE status = 1 or status = 0 ORDER BY route_id")
         return {
             "success": True,
             "data": routes
@@ -3779,6 +3792,57 @@ def get_schedule_cars(current_user: AdminUser = Depends(get_current_user)):
     except Exception as e:
         print("get_schedule_cars error:", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/schedules/drivers")
+def get_schedule_drivers(current_user: AdminUser = Depends(get_current_user)):
+    """從 Excel 檔案讀取駕駛員資料"""
+    try:
+        import pandas as pd
+        excel_file_path = "Drivers_Info.xlsx"
+        
+        # 檢查檔案是否存在
+        if not os.path.exists(excel_file_path):
+            print(f"Excel 檔案不存在: {excel_file_path}")
+            return {
+                "success": True,
+                "data": []
+            }
+        
+        # 讀取 Excel 檔案
+        df = pd.read_excel(excel_file_path)
+        
+        # 檢查必要的欄位是否存在
+        if 'Driver_name' not in df.columns or 'Employee_number' not in df.columns:
+            print(f"Excel 檔案缺少必要欄位。現有欄位: {list(df.columns)}")
+            return {
+                "success": True,
+                "data": []
+            }
+        
+        # 轉換為字典列表，並處理空值
+        drivers = []
+        for _, row in df.iterrows():
+            driver_name = str(row['Driver_name']).strip() if pd.notna(row['Driver_name']) else ""
+            employee_number = str(row['Employee_number']).strip() if pd.notna(row['Employee_number']) else ""
+            
+            # 只有當姓名和員工編號都不為空時才加入
+            if driver_name and employee_number:
+                drivers.append({
+                    "driver_name": driver_name,
+                    "employee_number": employee_number
+                })
+        
+        return {
+            "success": True,
+            "data": drivers
+        }
+    except Exception as e:
+        print("get_schedule_drivers error:", e)
+        # 發生錯誤時返回空列表而不是拋出異常，避免影響其他功能
+        return {
+            "success": True,
+            "data": []
+        }
 
 # ========== 同時開啟前後端 ==========
 app.mount('/home', StaticFiles(directory='dist', html=True), name='client')

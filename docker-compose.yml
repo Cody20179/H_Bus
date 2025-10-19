@@ -75,23 +75,18 @@ services:
     ports:
       - "8600:8600"
     environment:
-      REDIS_URL: "redis://hbus-redis:6379/1"
-      MYSQL_HOST: "hbus-mariadb"
-      MYSQL_USER: "root"
-      MYSQL_PORT: "3307"
-      MYSQL_PASSWORD: "109109"
-      MYSQL_DATABASE: "bus_system"
-      MYSQL_TABLE: "bus_route_stations"
-      SQLITE_PATH: "/data/webui.db"
+      Host: "192.168.0.126"
+      User: "root"
+      Port: "3307"
+      Password_SQL: "109109"
+      Database: "bus_system"
     depends_on:
       - redis
       - mariadb
     volumes:
       - "E:/SSL:/ssl:ro"
-    networks:
-      - hbus-net
     command: ["npm", "run", "serve"]
 
-networks:
-  hbus-net:
-    driver: bridge
+volumes:
+  mysql_data:
+  mariadb_data:

@@ -20,7 +20,8 @@
 
     <!-- 篩選區塊 -->
     <div class="filters-section">
-      <div class="filter-controls-row">
+      <!-- 搜尋欄 -->
+      <div class="search-row">
         <div class="search-container">
           <div class="search-input-wrapper">
             <span class="search-icon">🔍</span>
@@ -33,7 +34,10 @@
             />
           </div>
         </div>
+      </div>
 
+      <!-- 篩選條件行 -->
+      <div class="filter-controls-row">
         <div class="filter-group">
           <label class="filter-label">路線：</label>
           <select v-model="filters.route_no" @change="refresh" class="page-size-select">
@@ -43,7 +47,7 @@
             </option>
           </select>
         </div>
-        
+
         <div class="filter-group">
           <label class="filter-label">營運狀態：</label>
           <select v-model="filters.operation_status" @change="refresh" class="page-size-select">
@@ -54,15 +58,56 @@
           </select>
         </div>
 
+        <div class="filter-group-time">
+          <label class="filter-label">日期範圍：</label>
+          <div class="range-container">
+            <input 
+              v-model="filters.date_from" 
+              @change="refresh" 
+              type="date" 
+              class="page-size-select date-input"
+            />
+            <span class="range-separator">至</span>
+            <input 
+              v-model="filters.date_to" 
+              @change="refresh" 
+              type="date" 
+              class="page-size-select date-input"
+            />
+          </div>
+        </div>
+
+        <div class="filter-group-time">
+          <label class="filter-label">時間範圍：</label>
+          <div class="range-container">
+            <input 
+              v-model="filters.time_from" 
+              @change="refresh" 
+              type="time" 
+              class="page-size-select time-input"
+            />
+            <span class="range-separator">至</span>
+            <input 
+              v-model="filters.time_to" 
+              @change="refresh" 
+              type="time" 
+              class="page-size-select time-input"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- 排序和分頁設定行 -->
+      <div class="filter-bottom-row">
         <div class="filter-group">
           <label class="filter-label">排序：</label>
           <select v-model="sortOrder" @change="refresh" class="page-size-select">
-            <option value="route_asc">路線編號由小到大</option>
-            <option value="route_desc">路線編號由大到小</option>
-            <option value="departure_desc">發車時間由晚到早</option>
             <option value="departure_asc">發車時間由早到晚</option>
+            <option value="departure_desc">發車時間由晚到早</option>
             <option value="date_desc">日期由新到舊</option>
             <option value="date_asc">日期由舊到新</option>
+            <option value="route_asc">路線編號由小到大</option>
+            <option value="route_desc">路線編號由大到小</option>
           </select>
         </div>
 
@@ -74,6 +119,13 @@
             <option value="50">50</option>
           </select>
         </div>
+
+        <div class="filter-group">
+          <label class="filter-label">&nbsp;</label>
+          <button @click="clearFilters" class="btn-clear-filters" title="清除篩選">
+            清除篩選
+          </button>
+        </div>
       </div>
     </div>
 
@@ -82,8 +134,6 @@
       <table class="admin-table">
         <thead>
           <tr>
-            <th>ID</th>
-            <th>路線編號</th>
             <th>路線名稱</th>
             <th>往/返/其他</th>
             <th>特殊營運型態</th>
@@ -99,10 +149,6 @@
         </thead>
         <tbody>
           <tr v-for="schedule in schedules" :key="schedule.id" class="table-row">
-            <td>{{ schedule.id }}</td>
-            <td class="route-cell">
-              <span class="route-name">{{ schedule.route_no }}</span>
-            </td>
             <td>{{ schedule.route_name || '-' }}</td>
             <td>
               <span class="direction-badge">{{ schedule.direction || '-' }}</span>
@@ -128,6 +174,7 @@
             <td class="actions-cell">
               <div class="action-buttons">
                 <button @click="openEditModal(schedule)" class="btn-edit" :disabled="!canWrite" title="編輯">✏️</button>
+                <button @click="askDelete(schedule)" class="btn-delete" :disabled="!canWrite" title="刪除">🗑️</button>
               </div>
             </td>
           </tr>
@@ -199,9 +246,7 @@
                 <label class="form-label">路線編號 <span class="required">*</span></label>
                 <select 
                   v-model="form.route_no" 
-                  class="form-select" 
-                  :class="{ 'readonly-field': editMode }"
-                  :disabled="editMode"
+                  class="form-select"
                   required
                 >
                   <option value="">請選擇路線</option>
@@ -209,22 +254,18 @@
                     {{ route.route_id }} - {{ route.route_name }}
                   </option>
                 </select>
-                <span v-if="editMode" class="readonly-indicator">🔒 編輯時無法修改</span>
               </div>
               <div class="form-group">
                 <label class="form-label">往/返/其他</label>
                 <select 
                   v-model="form.direction" 
                   class="form-select"
-                  :class="{ 'readonly-field': editMode }"
-                  :disabled="editMode"
                 >
                   <option value="">請選擇</option>
                   <option value="去程">去程</option>
                   <option value="返程">返程</option>
                   <option value="其他">其他</option>
                 </select>
-                <span v-if="editMode" class="readonly-indicator">🔒 編輯時無法修改</span>
               </div>
             </div>
 
@@ -273,12 +314,20 @@
             <!-- 第五行：駕駛員資訊 (暫停營運或維修中時非必填) -->
             <div class="form-row" v-if="form.operation_status === '正常營運'">
               <div class="form-group">
-                <label class="form-label">駕駛員姓名 <span class="required">*</span></label>
-                <input v-model="form.driver_name" type="text" class="form-input" placeholder="駕駛員姓名" :required="form.operation_status === '正常營運'">
+                <label class="form-label">駕駛員選擇 <span class="required">*</span></label>
+                <select v-model="selectedDriverId" @change="onDriverSelect" class="form-select" :required="form.operation_status === '正常營運'">
+                  <option value="">請選擇駕駛員</option>
+                  <option v-for="(driver, index) in availableDrivers" :key="`${driver.driver_name}-${driver.employee_number}`" :value="index">
+                    {{ driver.driver_name }} ({{ driver.employee_number }})
+                  </option>
+                </select>
               </div>
               <div class="form-group">
-                <label class="form-label">員工編號 <span class="required">*</span></label>
-                <input v-model="form.employee_id" type="text" class="form-input" placeholder="員工編號" :required="form.operation_status === '正常營運'">
+                <label class="form-label">或手動輸入</label>
+                <div style="display: flex; gap: 8px;">
+                  <input v-model="form.driver_name" type="text" class="form-input" placeholder="駕駛員姓名" style="flex: 1;">
+                  <input v-model="form.employee_id" type="text" class="form-input" placeholder="員工編號" style="flex: 1;">
+                </div>
               </div>
             </div>
           </div>
@@ -290,6 +339,33 @@
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- 刪除確認模態框 -->
+    <div v-if="showDeleteModal" class="modal-overlay" @click="cancelDelete">
+      <div class="modal-content delete-modal" @click.stop>
+        <div class="modal-header">
+          <h2>確認刪除</h2>
+          <button class="close-btn" @click="cancelDelete">×</button>
+        </div>
+        <div class="modal-body">
+          <p>確定要刪除排班「{{ toDelete?.route_name }}」嗎？</p>
+          <div class="delete-info">
+            <p><strong>路線：</strong>{{ toDelete?.route_name }}</p>
+            <p><strong>方向：</strong>{{ toDelete?.direction }}</p>
+            <p><strong>日期：</strong>{{ toDelete?.date }}</p>
+            <p><strong>時間：</strong>{{ toDelete?.departure_time }}</p>
+            <p><strong>車牌：</strong>{{ toDelete?.license_plate }}</p>
+          </div>
+          <p class="warning-text">此操作無法復原。</p>
+        </div>
+        <div class="form-actions">
+          <button class="btn-secondary" @click="cancelDelete">取消</button>
+          <button class="btn-danger" @click="confirmDelete" :disabled="deleting">
+            {{ deleting ? '刪除中...' : '確認刪除' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -324,14 +400,23 @@ interface Car {
   car_status: string
 }
 
+interface Driver {
+  driver_name: string
+  employee_number: string
+}
+
 // 響應式數據
 const schedules = ref<Schedule[]>([])
 const availableRoutes = ref<Route[]>([])
 const availableCars = ref<Car[]>([])
+const availableDrivers = ref<Driver[]>([])
 const loading = ref(false)
 const showModal = ref(false)
 const editMode = ref(false)
 const saving = ref(false)
+const showDeleteModal = ref(false)
+const deleting = ref(false)
+const toDelete = ref<Schedule | null>(null)
 
 // 分頁
 const pagination = ref({
@@ -344,12 +429,14 @@ const pagination = ref({
 // 篩選條件
 const keyword = ref('')
 const pageSize = ref(10)
-const sortOrder = ref('route_asc')
+const sortOrder = ref('date_asc')
 const filters = ref({
   route_no: '',
   operation_status: '',
   date_from: '',
-  date_to: ''
+  date_to: '',
+  time_from: '',
+  time_to: ''
 })
 
 // 表單數據
@@ -365,6 +452,9 @@ const form = ref({
   driver_name: '',
   employee_id: ''
 })
+
+// 駕駛員選擇相關
+const selectedDriverId = ref('')
 
 // 計算屬性
 const canWrite = computed(() => {
@@ -435,6 +525,8 @@ const fetchSchedules = async () => {
     if (filters.value.operation_status) params.append('operation_status', filters.value.operation_status)
     if (filters.value.date_from) params.append('date_from', filters.value.date_from)
     if (filters.value.date_to) params.append('date_to', filters.value.date_to)
+    if (filters.value.time_from) params.append('time_from', filters.value.time_from)
+    if (filters.value.time_to) params.append('time_to', filters.value.time_to)
     if (sortOrder.value) params.append('sort', sortOrder.value)
 
     const response = await fetch(`/api/schedules?${params}`, {
@@ -482,6 +574,20 @@ const fetchCars = async () => {
   }
 }
 
+const fetchDrivers = async () => {
+  try {
+    const response = await fetch('/api/schedules/drivers', {
+      headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+    })
+    if (response.ok) {
+      const data = await response.json()
+      availableDrivers.value = data.data
+    }
+  } catch (error) {
+    console.error('Error fetching drivers:', error)
+  }
+}
+
 // 模態框操作
 const openCreateModal = () => {
   if (!canWrite.value) return
@@ -505,6 +611,18 @@ const openEditModal = (schedule: Schedule) => {
     driver_name: schedule.driver_name,
     employee_id: schedule.employee_id
   }
+  
+  // 嘗試找到對應的駕駛員並設定選擇狀態
+  selectedDriverId.value = ''
+  if (schedule.driver_name && schedule.employee_id) {
+    const driverIndex = availableDrivers.value.findIndex(driver => 
+      driver.driver_name === schedule.driver_name && driver.employee_number === schedule.employee_id
+    )
+    if (driverIndex !== -1) {
+      selectedDriverId.value = driverIndex.toString()
+    }
+  }
+  
   showModal.value = true
 }
 
@@ -526,57 +644,63 @@ const resetForm = () => {
     driver_name: '',
     employee_id: ''
   }
+  selectedDriverId.value = ''
+}
+
+// 駕駛員選擇處理
+const onDriverSelect = () => {
+  if (selectedDriverId.value !== '' && availableDrivers.value.length > 0) {
+    const driverIndex = parseInt(selectedDriverId.value)
+    const selectedDriver = availableDrivers.value[driverIndex]
+    if (selectedDriver) {
+      form.value.driver_name = selectedDriver.driver_name
+      form.value.employee_id = selectedDriver.employee_number
+    }
+  }
 }
 
 // 檢查衝突
 const checkConflicts = () => {
   const conflicts = []
   
-  // 檢查相同路線、方向、日期的排班是否已存在
-  const existingSchedule = schedules.value.find(s => 
-    s.id !== form.value.id && // 編輯時排除自己
-    s.route_no === form.value.route_no &&
-    s.direction === form.value.direction &&
-    s.date === form.value.date
-  )
-  
-  if (existingSchedule) {
-    conflicts.push(`路線 ${form.value.route_no} 在 ${form.value.date} 的 ${form.value.direction} 已有排班`)
-  }
+  // 移除路線重複檢查，允許同一路線在不同時間多次排班
   
   // 只有正常營運才檢查車牌和駕駛員衝突
   if (form.value.operation_status === '正常營運') {
-    // 檢查相同車牌、日期的衝突（同一天不能在多條路線）
+    // 檢查相同車牌、日期、時間的衝突（同一時間同一車牌不能重複使用）
     const carConflict = schedules.value.find(s =>
       s.id !== form.value.id &&
       s.license_plate === form.value.license_plate &&
-      s.date === form.value.date
+      s.date === form.value.date &&
+      s.departure_time === form.value.departure_time
     )
     
     if (carConflict) {
-      conflicts.push(`車牌 ${form.value.license_plate} 在 ${form.value.date} 當天已有其他路線排班`)
+      conflicts.push(`車牌 ${form.value.license_plate} 在 ${form.value.date} ${form.value.departure_time} 時段已有排班`)
     }
     
-    // 檢查相同駕駛員、日期的衝突（同一天不能在多條路線）
+    // 檢查相同駕駛員、日期、時間的衝突（同一時間同一駕駛員不能重複排班）
     const driverConflict = schedules.value.find(s =>
       s.id !== form.value.id &&
       s.driver_name === form.value.driver_name &&
-      s.date === form.value.date
+      s.date === form.value.date &&
+      s.departure_time === form.value.departure_time
     )
     
     if (driverConflict) {
-      conflicts.push(`駕駛員 ${form.value.driver_name} 在 ${form.value.date} 當天已有其他路線排班`)
+      conflicts.push(`駕駛員 ${form.value.driver_name} 在 ${form.value.date} ${form.value.departure_time} 時段已有排班`)
     }
     
-    // 檢查相同員工編號、日期的衝突（同一天不能在多條路線）
+    // 檢查相同員工編號、日期、時間的衝突（同一時間同一員工編號不能重複排班）
     const employeeConflict = schedules.value.find(s =>
       s.id !== form.value.id &&
       s.employee_id === form.value.employee_id &&
-      s.date === form.value.date
+      s.date === form.value.date &&
+      s.departure_time === form.value.departure_time
     )
     
     if (employeeConflict) {
-      conflicts.push(`員工編號 ${form.value.employee_id} 在 ${form.value.date} 當天已有其他路線排班`)
+      conflicts.push(`員工編號 ${form.value.employee_id} 在 ${form.value.date} ${form.value.departure_time} 時段已有排班`)
     }
   }
   
@@ -587,13 +711,11 @@ const checkConflicts = () => {
 const save = async () => {
   if (!canWrite.value) return
   
-  // 新增模式下檢查衝突
-  if (!editMode.value) {
-    const conflicts = checkConflicts()
-    if (conflicts.length > 0) {
-      alert('發現衝突：\n' + conflicts.join('\n'))
-      return
-    }
+  // 檢查衝突（新增和編輯模式都需要檢查）
+  const conflicts = checkConflicts()
+  if (conflicts.length > 0) {
+    alert('發現衝突：\n' + conflicts.join('\n'))
+    return
   }
   
   saving.value = true
@@ -609,15 +731,17 @@ const save = async () => {
     const basePayload: any = {}
     
     if (editMode.value) {
-      // 編輯模式下：路線編號、方向、往/返/其他 不可修改
-      if (form.value.special_type) basePayload.special_type = form.value.special_type
-      if (form.value.operation_status) basePayload.operation_status = form.value.operation_status
+      // 編輯模式下：現在允許修改所有欄位
+      if (form.value.route_no) basePayload.route_no = String(form.value.route_no)
+      basePayload.direction = form.value.direction
+      basePayload.special_type = form.value.special_type
+      basePayload.operation_status = form.value.operation_status
     } else {
       // 新增模式下：基本欄位都需要
       basePayload.route_no = String(form.value.route_no)  // 確保是字符串類型
-      if (form.value.direction) basePayload.direction = form.value.direction
-      if (form.value.special_type) basePayload.special_type = form.value.special_type
-      if (form.value.operation_status) basePayload.operation_status = form.value.operation_status
+      basePayload.direction = form.value.direction
+      basePayload.special_type = form.value.special_type
+      basePayload.operation_status = form.value.operation_status
     }
     
     // 只有正常營運才需要日期、發車時間、車牌和駕駛員資料
@@ -656,6 +780,47 @@ const save = async () => {
   }
 }
 
+// 刪除功能
+const askDelete = (schedule: Schedule) => {
+  if (!canWrite.value) return
+  toDelete.value = schedule
+  showDeleteModal.value = true
+}
+
+const cancelDelete = () => {
+  showDeleteModal.value = false
+  toDelete.value = null
+}
+
+const confirmDelete = async () => {
+  if (!toDelete.value) return
+  
+  deleting.value = true
+  try {
+    const response = await fetch(`/api/schedules/${toDelete.value.id}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${getAuthToken()}`
+      }
+    })
+    
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.detail || '刪除失敗')
+    }
+    
+    alert('刪除成功')
+    showDeleteModal.value = false
+    toDelete.value = null
+    fetchSchedules()
+  } catch (error: any) {
+    console.error('Error deleting schedule:', error)
+    alert(error.message || '刪除失敗')
+  } finally {
+    deleting.value = false
+  }
+}
+
 
 
 // 分頁操作
@@ -686,11 +851,26 @@ const refresh = () => {
   fetchSchedules()
 }
 
+// 清除所有篩選
+const clearFilters = () => {
+  keyword.value = ''
+  filters.value = {
+    route_no: '',
+    operation_status: '',
+    date_from: '',
+    date_to: '',
+    time_from: '',
+    time_to: ''
+  }
+  refresh()
+}
+
 // 生命週期
 onMounted(() => {
   fetchSchedules()
   fetchRoutes()
   fetchCars()
+  fetchDrivers()
 })
 </script>
 
@@ -758,13 +938,23 @@ onMounted(() => {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
-.search-container {
+.search-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.search-container {
+  flex: 1;
+  max-width: 400px;
 }
 
 .search-input-wrapper {
   position: relative;
-  max-width: 400px;
+  width: 100%;
 }
 
 .search-icon {
@@ -801,14 +991,44 @@ onMounted(() => {
 .filter-controls-row {
   display: flex;
   gap: 20px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.filter-bottom-row {
+  display: flex;
+  gap: 20px;
   align-items: center;
   flex-wrap: wrap;
+  padding-top: 16px;
+  border-top: 1px solid #e9ecef;
 }
 
 .filter-group {
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+}
+
+.filter-group-time {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 240px;
+}
+
+.range-container {
+  display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.range-separator {
+  color: #6c757d;
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 .filter-label {
@@ -816,6 +1036,7 @@ onMounted(() => {
   font-weight: 500;
   color: #495057;
   white-space: nowrap;
+  margin-bottom: 4px;
 }
 
 .page-size-select {
@@ -831,6 +1052,36 @@ onMounted(() => {
 .page-size-select:focus {
   outline: none;
   border-color: #007bff;
+}
+
+.date-input {
+  min-width: 110px;
+  flex: 1;
+}
+
+.time-input {
+  min-width: 110px;
+  flex: 1;
+}
+
+.btn-clear-filters {
+  background: #d4d4d4ff;
+  color: black;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  height: 38px;
+  min-width: 80px;
+  justify-content: center;
+}
+
+.btn-clear-filters:hover {
+  background: #969595ff;
 }
 
 .table-container {
@@ -943,12 +1194,12 @@ onMounted(() => {
 }
 
 .btn-delete {
-  background: #f8d7da;
-  color: #721c24;
+  background: #fecaca;
+  color: #991b1b;
 }
 
 .btn-delete:hover:not(:disabled) {
-  background: #f5c6cb;
+  background: #fca5a5;
   transform: translateY(-1px);
 }
 
@@ -1216,6 +1467,55 @@ onMounted(() => {
   transform: translateY(-1px);
 }
 
+.btn-danger {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #c82333;
+  transform: translateY(-1px);
+}
+
+.btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.delete-modal {
+  max-width: 500px;
+}
+
+.modal-body {
+  padding: 20px 24px;
+}
+
+.delete-info {
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 16px 0;
+  border-left: 4px solid #dc3545;
+}
+
+.delete-info p {
+  margin: 4px 0;
+  font-size: 14px;
+}
+
+.warning-text {
+  color: #dc3545;
+  font-weight: 500;
+  font-size: 14px;
+  margin-top: 16px !important;
+}
+
 @media (max-width: 768px) {
   .route-management {
     padding: 10px;
@@ -1227,9 +1527,37 @@ onMounted(() => {
     gap: 16px;
   }
   
-  .filter-controls {
+  .search-row {
     flex-direction: column;
     align-items: stretch;
+    gap: 12px;
+  }
+  
+  .filter-controls-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+  
+  .filter-bottom-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+  
+  .filter-group, .filter-group-time {
+    min-width: unset;
+    width: 100%;
+  }
+  
+  .range-container {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  
+  .range-separator {
+    text-align: center;
   }
   
   .form-row {

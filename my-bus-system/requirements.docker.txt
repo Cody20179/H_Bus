@@ -8,4 +8,4 @@ pytz
 pandas
 redis
 python-multipart
-pathlib
+openpyxl
