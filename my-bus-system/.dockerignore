@@ -1,0 +1,21 @@
+# General
+.git
+.gitignore
+.ipynb_checkpoints
+.vscode
+*.log
+*.pyc
+__pycache__/
+.DS_Store
+
+# Frontend
+node_modules/
+dist/
+
+# Python virtual envs
+.venv/
+venv/
+
+# Secrets
+.env
+.env.*

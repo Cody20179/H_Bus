@@ -454,7 +454,7 @@
     <div v-if="showRouteModal" class="modal-overlay" @click="closeRouteModal">
       <div class="modal-content" @click.stop>
         <div class="modal-header">
-          <h2>編輯路線</h2>
+          <h2>新增路線</h2>
           <button @click="closeRouteModal" class="close-btn">&times;</button>
         </div>
 

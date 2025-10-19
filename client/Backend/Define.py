@@ -42,3 +42,15 @@ class CarBackupInsert(BaseModel):
     direction: Optional[str] = None
     Current_Loaction: Optional[str] = None
 
+class BoardingQRVerifyRequest(BaseModel):
+    qrcode: str
+
+class CarInsertRequest(BaseModel):
+    car_licence: str
+    Gpstime: str
+    X: float
+    Y: float
+    Speed: int
+    Deg: int
+    acc: int
+    rcv_dt: str | None = None

@@ -3,7 +3,9 @@
 # ====================================
 from Backend import Define
 from Backend.MySQL import MySQL_Doing
-
+# === 產生乘車 QR 與驗證乘車資格 ===
+from Backend.CreateUserQR import generate_boarding_token, save_qr_png
+from Backend.CheckQR import verify_boarding_token
 # ====================================
 # 📦 第三方套件
 # ====================================
@@ -13,39 +15,30 @@ from fastapi.responses import RedirectResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
+from Crypto.Util.Padding import pad
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+from io import BytesIO
 import pandas as pd
 import redis
 import httpx
 import qrcode
-from io import BytesIO
 # ====================================
 # ✅ 標準庫
 # ====================================
-import os
-import json
-import time
-import hmac
-import math
-import base64
-import hashlib
-import secrets
-import requests
-import tempfile
-import qrcode
-import urllib.parse
-import numpy as np
-import pandas as pd
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from zoneinfo import ZoneInfo
 from datetime import datetime
 from urllib.parse import urlparse, quote
-from binascii import unhexlify
-from base64 import b64encode, b64decode
-from decimal import Decimal, InvalidOperation
+from base64 import b64decode
+from decimal import Decimal
 from typing import List, Tuple, Optional
 from threading import RLock
-from time import time
+import os, json, time, math, base64, requests
+import urllib, hmac, hashlib, secrets, tempfile, smtplib
 
 api = APIRouter(prefix='/api')
 
@@ -72,16 +65,6 @@ _ROUTE_STOPS_CACHE: dict[Tuple[int, str], Tuple[float, list]] = {}
 _ROUTE_STOPS_TTL_SEC = 120  # 2 minutes
 _ROUTE_STOPS_LOCK = RLock()
 
-def _norm_direction(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        return None
-    t = str(value).strip()
-    # Normalize to DB values: 去程 / 返程
-    if t in ("1", "返程", "回程", "返"):
-        return "返程"
-    if t in ("0", "去程", "去", "往"):
-        return "去程"
-    return t or None
 
 # === Redis 初始化 ===
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -100,6 +83,10 @@ AUTHORIZE_URL = "https://access.line.me/oauth2/v2.1/authorize"
 TOKEN_URL = "https://api.line.me/oauth2/v2.1/token"
 PROFILE_URL = "https://api.line.me/v2/profile"
 APP_SESSION_SECRET = os.getenv("APP_SESSION_SECRET", "my-secret")
+
+# === email 相關設定 ===
+SENDER_EMAIL = os.getenv("Sender_email")
+SENDER_PASS  = os.getenv("Password_email")
 
 # === 金流 相關設定 ===
 MERCHANT_ID   = os.getenv("MERCHANT_ID", "")
@@ -295,6 +282,120 @@ def normalize_direction(x):
         return "回程"
     return "去程"
 
+# ========== 全域設定 ==========
+TZ_NAME = os.getenv("TZ", "Asia/Taipei")
+MAIL_SEND_HOUR = int(os.getenv("MAIL_SEND_HOUR", "8"))
+MAIL_SEND_MIN = int(os.getenv("MAIL_SEND_MIN", "0"))
+TZ = ZoneInfo(TZ_NAME)
+
+# ========== 信件樣板 ==========
+MAIL_SUBJECT = "【乘車提醒】您今日的預約資訊"
+MAIL_TEXT_TEMPLATE = """親愛的乘客您好，
+
+以下為您今日 ({today}) 的預約資訊：
+{lines}
+
+若資訊有誤或需更改，請盡速與我們聯繫。祝您旅途順利！
+
+— 花蓮小巴預約系統
+"""
+# ========== 郵件發送 ==========
+def send_email(receiver_email: str, subject: str, text: str):
+    message = MIMEMultipart("alternative")
+    message["Subject"] = subject
+    message["From"] = SENDER_EMAIL
+    message["To"] = receiver_email
+    message.attach(MIMEText(text, "plain", "utf-8"))
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(SENDER_EMAIL, SENDER_PASS)
+        server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
+# ========== 查詢今天預約 & 準備寄信名單 ==========
+def fetch_today_reservations() -> pd.DataFrame:
+    sql = """
+    SELECT 
+        u.email,
+        r.user_id,
+        r.reservation_id,
+        r.booking_time,
+        r.booking_number,
+        r.booking_start_station_name,
+        r.booking_end_station_name
+    FROM reservation r
+    JOIN users u ON u.user_id = r.user_id
+    WHERE r.review_status = 'approved'
+      AND DATE(r.booking_time) = CURDATE()
+      AND u.email IS NOT NULL
+      AND u.email <> '';
+    """
+    rows = MySQL_Doing.run(sql)
+    return pd.DataFrame(rows)
+# ========== 組信內容（依 email 彙整多筆預約） ==========
+def build_and_send_emails():
+    now = datetime.now(TZ)
+    print(f"[{now:%Y-%m-%d %H:%M:%S}] Checking today's reservations...")
+
+    try:
+        df = fetch_today_reservations()
+    except Exception as e:
+        print(f"DB error: {e}")
+        return
+
+    if df.empty:
+        print(f"[{now:%Y-%m-%d %H:%M:%S}] No approved reservations found today.")
+        return
+
+    grouped = df.groupby("email", dropna=True)
+    success, fail = 0, 0
+
+    for email, g in grouped:
+        lines = [
+            f"- 預約編號: {r['reservation_id']}｜時間: {r['booking_time']}｜"
+            f"人數: {r['booking_number']}｜{r['booking_start_station_name']} → {r['booking_end_station_name']}"
+            for _, r in g.iterrows()
+        ]
+        body = MAIL_TEXT_TEMPLATE.format(today=f"{now:%Y-%m-%d}", lines="\n".join(lines))
+
+        try:
+            send_email(email, MAIL_SUBJECT, body)
+            print(f"✔ Sent: {email} ({len(g)} records)")
+            success += 1
+        except Exception as e:
+            print(f"✘ Failed: {email} → {e}")
+            fail += 1
+
+    print(f"[{datetime.now(TZ):%Y-%m-%d %H:%M:%S}] Completed — Success: {success}, Fail: {fail}")
+
+# ========== 排程器啟動 ==========
+def start_scheduler():
+    scheduler = BackgroundScheduler(timezone=TZ)
+    scheduler.add_job(
+        build_and_send_emails,
+        CronTrigger(hour=MAIL_SEND_HOUR, minute=MAIL_SEND_MIN, timezone=TZ),
+        id="daily_send",
+        replace_existing=True
+    )
+    scheduler.start()
+    app.state.scheduler = scheduler
+    print(f"[scheduler] started — will send emails daily at {MAIL_SEND_HOUR:02d}:{MAIL_SEND_MIN:02d} ({TZ_NAME})")
+
+
+    sched = getattr(app.state, "scheduler", None)
+    if sched:
+        sched.shutdown()
+        print("[scheduler] stopped")
+
+@app.on_event("startup")
+def on_startup():
+    start_scheduler()
+
+@app.on_event("shutdown")
+def on_shutdown():
+    sched = getattr(app.state, "scheduler", None)
+    if sched:
+        sched.shutdown()
+        print("[scheduler] stopped")
+        
 # === 前端路線資訊 ===
 @app.get("/healthz", tags=["meta"], summary="健康檢查")
 def healthz():
@@ -409,51 +510,98 @@ def get_route_stations(q: Define.RouteStationsQuery):
     data: List[Define.StationOut] = [Define.StationOut(**r) for r in records]
     return data
 
-@api.get("/Route_ScheduleTime", tags=["Client"], summary="取得路線時刻表（含下一班時間）")
+@api.get("/Route_ScheduleTime", tags=["Client"], summary="取得路線時刻表（僅以頭尾站決定當前班次）")
 def get_route_schedule_time(route_id: int, direction: str = None):
     """
-    根據當前時間，為每個站點回傳下一班時間。
-    e.g. /api/Route_ScheduleTime?route_id=1&direction=去程
+    只用「頭站與尾站」的時刻表決定當前班次索引 k：
+      - 若 now <= head[k] 的第一個班次 → k 即為該索引
+      - 若落在 (tail[k-1], tail[k]] 之間 → k
+      - 若超過最後一個 tail → k = 最後一班
+    接著每一站都取自己 full_schedule 的第 k 筆（若沒有第 k 筆就取最後一筆）。
+    這樣所有站的時間屬於同一輪，不會倒退。
     """
-    sql = f"SELECT route_id, direction, stop_name, schedule FROM bus_route_stations WHERE route_id = {route_id}"
-    if direction:
-        sql += f" AND direction = '{direction}'"
+    # 讀站點與時刻
+    sql = f"""
+    SELECT stop_name, schedule, 
+            COALESCE(stop_order, 9999) AS ord
+    FROM bus_route_stations
+    WHERE route_id = {route_id} {f"AND direction='{direction}'" if direction else ""}
+    """
 
     rows = MySQL_Doing.run(sql)
     df = pd.DataFrame(rows)
-
     if df.empty:
-        return {"status": "success", "data": []}
+        return {"status": "success", "route_id": route_id, "direction": direction, "data": []}
 
-    now = datetime.now().time()  # 當前時間（只取時分秒）
-    results = []
+    # 依序排序（頭→尾）
+    df = df.sort_values("ord").reset_index(drop=True)
 
-    for _, row in df.iterrows():
-        schedule_str = str(row.get("schedule") or "").strip()
-        stop_name = row.get("stop_name")
-
-        if not schedule_str:
-            results.append({"stop_name": stop_name, "next_time": None})
-            continue
-
-        # 拆成時間清單
-        times = []
-        for t in schedule_str.split(","):
+    # 工具：把 "HH:MM,..." 轉成 time 物件陣列
+    def parse_times(s: str):
+        out = []
+        if not s:
+            return out
+        for t in str(s).split(","):
+            t = t.strip()
             try:
-                times.append(datetime.strptime(t.strip(), "%H:%M").time())
+                out.append(datetime.strptime(t, "%H:%M").time())
             except ValueError:
                 pass
+        return out
 
-        # 找出下一個班次
-        next_time = next((t for t in times if t > now), None)
-        if next_time is None and times:
-            # 如果都過了，就回最後一班
-            next_time = times[-1]
+    # 頭站、尾站
+    head_name = df.iloc[0]["stop_name"]
+    tail_name = df.iloc[-1]["stop_name"]
+    head_times = parse_times(df.iloc[0]["schedule"])
+    tail_times = parse_times(df.iloc[-1]["schedule"])
 
+    # 沒時刻直接回傳
+    if not head_times or not tail_times:
+        data = [{
+            "stop_name": r["stop_name"],
+            "next_time": None,
+            "full_schedule": (r["schedule"] or "").strip()
+        } for _, r in df.iterrows()]
+        return {"status": "success", "route_id": route_id, "direction": direction, "data": data}
+
+    # 若長度不同，對齊為較短的長度（避免索引超界）
+    L = min(len(head_times), len(tail_times))
+    head_times = head_times[:L]
+    tail_times = tail_times[:L]
+
+    now = datetime.now().time()
+
+    # ---- 決定當前班次索引 k（只看頭尾站）----
+    # 規則：
+    # 1) 若 now <= 第一個 head → k=該 head 的索引
+    # 2) 否則找最小 k 使 now <= tail[k]
+    # 3) 否則 k=L-1
+    def locate_cycle_index(now_t):
+        # 先看 head
+        for i, ht in enumerate(head_times):
+            if now_t <= ht:
+                return i
+        # 再看 tail
+        for i, tt in enumerate(tail_times):
+            if now_t <= tt:
+                return i
+        return L - 1
+
+    k = locate_cycle_index(now)
+
+    # ---- 逐站取第 k 筆時刻（若該站不足 k+1 筆，就取最後一筆）----
+    results = []
+    for _, r in df.iterrows():
+        full = (r["schedule"] or "").strip()
+        times = parse_times(full)
+        if not times:
+            results.append({"stop_name": r["stop_name"], "next_time": None, "full_schedule": full})
+            continue
+        idx = min(k, len(times) - 1)
         results.append({
-            "stop_name": stop_name,
-            "next_time": next_time.strftime("%H:%M") if next_time else None,
-            "full_schedule": schedule_str
+            "stop_name": r["stop_name"],
+            "next_time": times[idx].strftime("%H:%M"),
+            "full_schedule": full
         })
 
     return {
@@ -492,55 +640,117 @@ def Get_GIS_About():
 
 @api.get("/GIS_AllFast", tags=["Client"], summary="今日正常營運路線即時摘要（30秒快取）")
 def gis_all_fast():
-    df_routes = pd.DataFrame(MySQL_Doing.run('SELECT route_no, direction, license_plate FROM route_schedule WHERE operation_status = "正常營運"'))
+    print("=== [DEBUG] /GIS_AllFast 開始 ===")
+
+    # 1️⃣ 抓取今日正常營運車輛
+    df_routes = pd.DataFrame(MySQL_Doing.run('''
+        SELECT route_no, direction, license_plate 
+        FROM route_schedule 
+        WHERE operation_status = "正常營運"
+    '''))
     if df_routes.empty:
+        print("[WARN] 無正常營運路線")
         return {}
 
     df_routes["direction"] = df_routes["direction"].map(normalize_direction)
+    print(f"[DEBUG] 讀取 route_schedule 共 {len(df_routes)} 筆")
 
-    # 2️⃣ 撈出所有站點
-    df_stops = pd.DataFrame(MySQL_Doing.run('SELECT route_id, direction, latitude, longitude, stop_name FROM bus_route_stations'))
+    # 2️⃣ 讀取所有站點
+    df_stops = pd.DataFrame(MySQL_Doing.run('''
+        SELECT route_id, direction, latitude, longitude, stop_name 
+        FROM bus_route_stations
+    '''))
     df_stops["direction"] = df_stops["direction"].map(normalize_direction)
+    print(f"[DEBUG] 讀取 bus_route_stations 共 {len(df_stops)} 筆")
 
-    # 3️⃣ 結果暫存
     results = []
 
-    # 4️⃣ 對每一台車找最近站
+    # 3️⃣ 每台車找最近站點
     for _, r in df_routes.iterrows():
         route_id = int(r["route_no"])
         plate = str(r["license_plate"])
         direction = r["direction"]
 
-        sql = f'SELECT Y AS latitude, X AS longitude FROM ttcarimport WHERE car_licence = "{plate}" ORDER BY seq DESC LIMIT 1'
+        print(f"\n[DEBUG] 處理路線 {route_id}, 車牌 {plate}, 方向 {direction}")
+
+        # --- 抓車機資料 ---
+        sql = f'''
+            SELECT 
+                X AS longitude,
+                Y AS latitude
+            FROM ttcarimport 
+            WHERE car_licence = "{plate}" 
+            ORDER BY seq DESC 
+            LIMIT 1
+        '''
         df_car = pd.DataFrame(MySQL_Doing.run(sql))
+        print(f"[DEBUG] 車牌 {plate} GPS 筆數: {len(df_car)}")
+
         if df_car.empty:
+            print(f"[WARN] 車牌 {plate} 無最新位置，略過")
             continue
 
-        car_lat = float(df_car.iloc[0]["latitude"])
-        car_lon = float(df_car.iloc[0]["longitude"])
+        # --- 經緯度轉換 + 檢查 ---
+        try:
+            car_lat = float(df_car.iloc[0]["latitude"])   # 緯度（應約23.x）
+            car_lon = float(df_car.iloc[0]["longitude"])  # 經度（應約121.x）
+        except Exception as e:
+            print(f"[ERROR] 無法轉換經緯度 ({plate}): {e}")
+            continue
 
-        # 找同路線、同方向的站點
-        df_route_stops = df_stops.loc[(df_stops["route_id"] == route_id) & (df_stops["direction"] == direction)].copy()
+        # 自動偵測經緯度是否顛倒
+        if abs(car_lat) > 90 or abs(car_lon) > 180:
+            print(f"[WARN] 座標顛倒 lat={car_lat}, lon={car_lon} → 交換")
+            car_lat, car_lon = car_lon, car_lat
+
+        # 粗略檢查是否在台灣範圍內
+        if not (21.5 <= car_lat <= 25.5 and 119.0 <= car_lon <= 123.0):
+            print(f"[WARN] 座標異常 lat={car_lat}, lon={car_lon}")
+
+        print(f"[DEBUG] 正常化後座標: lat={car_lat}, lon={car_lon}")
+
+        # --- 尋找相同路線、方向的站 ---
+        df_route_stops = df_stops.loc[
+            (df_stops["route_id"] == route_id) &
+            (df_stops["direction"] == direction)
+        ].copy()
+
+        print(f"[DEBUG] 匹配站點數: {len(df_route_stops)}")
         if df_route_stops.empty:
+            print(f"[WARN] 路線 {route_id} ({direction}) 無對應站點")
             continue
 
-        df_route_stops.loc[:, "distance_m"] = df_route_stops.apply(
-            lambda s: haversine(car_lat, car_lon, float(s["latitude"]), float(s["longitude"])),
-            axis=1
-        )
+        # --- 計算距離 ---
+        try:
+            df_route_stops.loc[:, "distance_m"] = df_route_stops.apply(
+                lambda s: haversine(car_lat, car_lon, float(s["latitude"]), float(s["longitude"])),
+                axis=1
+            )
+        except Exception as e:
+            print(f"[ERROR] 計算距離失敗: {e}")
+            continue
 
-        nearest = df_route_stops.loc[df_route_stops["distance_m"].idxmin()]
+        nearest_idx = df_route_stops["distance_m"].idxmin()
+        nearest = df_route_stops.loc[nearest_idx]
+        print(f"[DEBUG] 最接近站點: {nearest['stop_name']} (距離 {nearest['distance_m']:.2f} 公尺)")
+
+        # --- 輸出 ---
         results.append({
             "route": route_id,
-            "X": car_lon,
-            "Y": car_lat,
+            "X": car_lon,      # 經度
+            "Y": car_lat,      # 緯度
             "direction": direction,
             "Current_Loaction": nearest["stop_name"]
         })
 
-    # 5️⃣ 整理輸出格式（跟你貼的一樣）
-    df_result = pd.DataFrame(results)
-    return df_result.to_dict()
+    print(f"\n[DEBUG] 結果共 {len(results)} 筆")
+    for i, r in enumerate(results):
+        print(f"  [{i}] route={r['route']}, dir={r['direction']}, stop={r['Current_Loaction']}")
+
+    print("=== [DEBUG] /GIS_AllFast 結束 ===\n")
+
+    return pd.DataFrame(results).to_dict()
+
 
 @api.post("/reservation", tags=["Client"], summary="送出預約")
 def push_reservation(req: Define.ReservationReq):
@@ -625,6 +835,7 @@ async def get_privacy():
 
 @api.post("/car_backup_insert", tags=["Car"], summary="插入車輛備份資料")
 def insert_car_backup(data: Define.CarBackupInsert):
+
     # 若未提供 rcv_dt，使用伺服器當前時間
     rcv_dt = data.rcv_dt or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -649,55 +860,7 @@ def insert_car_backup(data: Define.CarBackupInsert):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/qrcode/{reservation_id}", tags=["Client"], summary="取得預約上車 QRCode（PNG）")
-def qrcode_reservation(reservation_id: int, save: bool = False):
-    """
-    產出一張 PNG QRCode 並回傳。
-    內容： reservation_id|user_id|line_id
-    """
-    rid = int(str(reservation_id).strip())
 
-    # 查 DB：JOIN users 拿 line_id
-    sql = f"""
-        SELECT r.reservation_id, r.user_id, u.line_id, r.payment_status, r.review_status
-        FROM reservation AS r
-        LEFT JOIN users AS u ON r.user_id = u.user_id
-        WHERE r.reservation_id = {rid}
-        LIMIT 1;
-    """
-    row = MySQL_Doing.run(sql)
-
-    if row is None or len(row) == 0:
-        raise HTTPException(status_code=404, detail=f"reservation {rid} not found")
-
-    rec = row.iloc[0].to_dict() if hasattr(row, "iloc") else row[0]
-
-    # 組合 QR 內容
-    uid = rec.get("user_id")
-    lid = rec.get("line_id", "")
-
-    # 組合原始內容
-    raw_data = {
-        "reservation_id": rid,
-        "user_id": uid,
-        "line_id": lid,
-    }
-
-    # 使用現有 AES 加密
-    enc_text = encrypt_aes(raw_data)
-
-    # 產生加密 QR Code
-    img = qrcode.make(enc_text)
-
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-
-    # 不落地 → 直接回傳
-    return StreamingResponse(buf, media_type="image/png")
-
-@api.post("/qrcode/verify", tags=["Client"], summary="驗證 QRCode")
-def verify_qrcode(data: dict):
     qr_text = str(data.get("qrcode", "")).strip()
     if not qr_text:
         raise HTTPException(status_code=400, detail="Empty QRCode")
@@ -718,6 +881,29 @@ def verify_qrcode(data: dict):
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"QRCode decrypt failed: {e}")
+
+@api.post("/car_insert", tags=["Car"], summary="插入車輛即時定位資料")
+def insert_car(data: Define.CarInsertRequest):
+    rcv_dt = data.rcv_dt or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    sql = f"""
+    INSERT INTO ttcarimport (rcv_dt, car_licence, Gpstime, X, Y, Speed, Deg, acc)
+    VALUES (
+        '{rcv_dt}',
+        '{data.car_licence}',
+        '{data.Gpstime}',
+        {data.X},
+        {data.Y},
+        {data.Speed},
+        {data.Deg},
+        {1 if str(data.acc) in ["1", "true", "True"] else 0}
+    );
+    """
+
+    MySQL_Doing.run(sql)
+    
+    return {"status": "success", "message": "資料已插入"}
+
 @api.get("/announcements", tags=["Client"], summary="取得服務公告列表")
 def get_announcements():
     sql = "SELECT id, title, content, created_at FROM announcements ORDER BY created_at DESC"
@@ -828,118 +1014,6 @@ def delete_route_schedule(id: int):
     sql = f"DELETE FROM route_schedule WHERE id = {id}"
     MySQL_Doing.run(sql)
     return {"status": "success", "message": f"排班 {id} 已刪除"}
-
-
-    def haversine(lat1, lon1, lat2, lon2):
-        R = 6371000
-        phi1, phi2 = math.radians(lat1), math.radians(lat2)
-        dphi = math.radians(lat2 - lat1)
-        dlambda = math.radians(lon2 - lon1)
-        a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
-        return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-    def norm_direction(value: str) -> str:
-        t = str(value or "").strip()
-        if any(k in t for k in ("返", "回")) or t == "1":
-            return "返程"
-        if any(k in t for k in ("去", "往")) or t == "0":
-            return "去程"
-        return t or "去程"
-
-    db = MySQL_Doing
-
-    # 1️⃣ 今日正常營運班表
-    schedule_sql = """
-        SELECT CAST(route_no AS SIGNED) AS route_no, direction, license_plate
-        FROM route_schedule
-        WHERE operation_status = '正常營運'
-            AND date = CURDATE()
-        ORDER BY route_no
-    """
-    sch = db.run(schedule_sql)
-    df_sch = pd.DataFrame(sch)
-    if df_sch.empty:
-        return {"status": "success", "data": []}
-    df_sch["direction"] = df_sch["direction"].map(norm_direction)
-
-    # 2️⃣ 最新車輛位置
-    plates = df_sch["license_plate"].dropna().astype(str).unique().tolist()
-    if not plates:
-        return {"status": "success", "data": []}
-    in_list = "','".join([p.replace("'", "''") for p in plates])
-    cars_sql = f"""
-        SELECT t.car_licence AS license_plate, t.X, t.Y, t.seq, t.rcv_dt
-        FROM ttcarimport t
-        JOIN (
-            SELECT car_licence, MAX(seq) AS max_seq
-            FROM ttcarimport
-            WHERE car_licence IN ('{in_list}')
-            GROUP BY car_licence
-        ) m
-        ON t.car_licence = m.car_licence AND t.seq = m.max_seq
-    """
-    cars = db.run(cars_sql)
-    df_cars = pd.DataFrame(cars)
-
-    # 3️⃣ 路線站點
-    route_ids = df_sch["route_no"].dropna().astype(int).unique().tolist()
-    id_list = ",".join(str(i) for i in route_ids)
-    stops_sql = f"""
-        SELECT CAST(route_id AS SIGNED) AS route_id, direction, stop_name,
-                CAST(latitude AS DECIMAL(12,8)) AS latitude,
-                CAST(longitude AS DECIMAL(12,8)) AS longitude,
-                CAST(stop_order AS SIGNED) AS stop_order, station_id
-        FROM bus_route_stations
-        WHERE route_id IN ({id_list})
-        ORDER BY route_id, direction, stop_order
-    """
-    stops = db.run(stops_sql)
-    df_stops = pd.DataFrame(stops)
-    df_stops["direction"] = df_stops["direction"].map(norm_direction)
-
-    # 4️⃣ 分組比對最近站
-    stop_groups = {
-        (int(rid), d): g.reset_index(drop=True)
-        for (rid, d), g in df_stops.groupby(["route_id", "direction"], dropna=False)
-    }
-    car_pos = {str(r["license_plate"]): (float(r["X"]), float(r["Y"])) for _, r in df_cars.iterrows() if not pd.isna(r["X"]) and not pd.isna(r["Y"])}
-
-    results = []
-    for _, s in df_sch.iterrows():
-        rid = int(s["route_no"])
-        d = norm_direction(s["direction"])
-        plate = str(s["license_plate"])
-        lng, lat = car_pos.get(plate, (None, None))
-        if lng is None or lat is None:
-            results.append(dict(route=rid, direction=d, license_plate=plate,
-                                car_lng=None, car_lat=None, nearest_stop_name=None,
-                                nearest_stop_order=None, nearest_distance_m=None,
-                                total_stops=0, station_id=None))
-            continue
-
-        df_route_stops = stop_groups.get((rid, d))
-        if df_route_stops is None or df_route_stops.empty:
-            results.append(dict(route=rid, direction=d, license_plate=plate,
-                                car_lng=lng, car_lat=lat, nearest_stop_name=None,
-                                nearest_stop_order=None, nearest_distance_m=None,
-                                total_stops=0, station_id=None))
-            continue
-
-        df_route_stops["dist"] = df_route_stops.apply(
-            lambda r: haversine(lat, lng, float(r["latitude"]), float(r["longitude"])), axis=1)
-        nearest = df_route_stops.loc[df_route_stops["dist"].idxmin()]
-
-        results.append(dict(
-            route=rid, direction=d, license_plate=plate,
-            car_lng=lng, car_lat=lat,
-            nearest_stop_name=str(nearest["stop_name"]),
-            nearest_stop_order=int(nearest["stop_order"]),
-            nearest_distance_m=float(nearest["dist"]),
-            total_stops=int(len(df_route_stops)),
-            station_id=int(nearest["station_id"])
-        ))
-
-    return {"status": "success", "data": results}
 
 # === 使用者更新資訊 ===
 @api.post("/users/update_mail", tags=["Users"], summary="更新使用者Email")
@@ -1088,6 +1162,85 @@ async def me(request: Request):
         "last_login": row["last_login"],
     }
 
+@api.get("/boarding_qr/{reservation_id}", tags=["Client"], summary="產生乘車用 QRCode（PNG）")
+def create_boarding_qr(reservation_id: int, download: bool = False):
+    """
+    依據 reservation_id 產生乘車 QR 圖片。
+    - 驗證付款與審核狀態
+    - 回傳 PNG 檔（或提供下載）
+    """
+    try:
+        token = generate_boarding_token(reservation_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"產生失敗: {e}")
+
+    import tempfile, os
+    temp_dir = tempfile.mkdtemp(prefix="boarding_")
+    img_path = os.path.join(temp_dir, f"boarding_{reservation_id}.png")
+    save_qr_png(token, img_path)
+
+    if download:
+        # 讓用戶直接下載
+        return FileResponse(
+            img_path,
+            media_type="image/png",
+            filename=f"boarding_{reservation_id}.png"
+        )
+    else:
+        # 預設直接串流圖片
+        buf = BytesIO()
+        img = qrcode.make(token)
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/png")
+
+
+@api.post("/boarding_qr/verify", tags=["Client"], summary="驗證乘車 QRCode")
+def verify_boarding_qr(data: Define.BoardingQRVerifyRequest):
+    """
+    驗證乘車 QR 編碼是否合法與是否具乘車資格。
+    """
+    token = data.qrcode.strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="缺少 qrcode")
+
+    result = verify_boarding_token(token)
+
+    if not result.get("ok"):
+        print("[DEBUG] verify_boarding_token 驗證失敗:", result)
+        return {"status": "error", "reason": result.get("reason")}
+
+    print("[DEBUG] verify_boarding_token 驗證通過:", result)
+
+    # --- 驗證通過後，自動更新 dispatch_status ---
+    try:
+        reservation_id = result.get("reservation_id") or result.get("data", {}).get("reservation_id")
+
+        print(f"[DEBUG] 抓到 reservation_id = {reservation_id}")
+
+        if reservation_id:
+            sql = f"""
+                UPDATE reservation
+                SET dispatch_status = 'assigned', updated_at = NOW()
+                WHERE reservation_id = {int(reservation_id)};
+            """
+            print(f"[DEBUG] 準備執行 SQL:\n{sql.strip()}")
+            MySQL_Doing.run(sql)
+            print("[DEBUG] SQL 執行完成")
+
+            # 驗證是否真的有更新
+            check_sql = f"SELECT dispatch_status FROM reservation WHERE reservation_id = {int(reservation_id)};"
+            df = MySQL_Doing.run(check_sql)
+            print(f"[DEBUG] 更新後查詢結果:\n{df}")
+        else:
+            print("[DEBUG] reservation_id 沒抓到，跳過更新。")
+
+    except Exception as e:
+        print(f"[ERROR] 更新 dispatch_status 失敗: {e}")
+
+    return {"status": "success", "data": result}
 # ====================================
 # 🧾 建立付款連結
 # ====================================
@@ -1160,7 +1313,6 @@ def return_page():
     return RedirectResponse(url=f"{PUBLIC_BASE}?tab=reservations")
 
 # === 前端靜態檔案服務 ===
-import math
 
 # ------------------------------
 # 新增：今日正常營運路線的即時摘要（30秒快取）
@@ -1168,25 +1320,6 @@ import math
 _GIS_ALL_CACHE = {"ts": 0.0, "data": None}
 _GIS_ALL_TTL = 30  # seconds
 _GIS_ALL_LOCK = RLock()
-
-def _norm_dir2(v: str) -> str:
-    t = (str(v or "").strip())
-    if ("返" in t) or ("回" in t) or (t == "1"):
-        return "返程"
-    if ("去" in t) or ("往" in t) or (t == "0"):
-        return "去程"
-    return t or "去程"
-
-def _hv(lat1, lon1, lat2, lon2):
-    try:
-        R = 6371000.0
-        phi1, phi2 = math.radians(float(lat1)), math.radians(float(lat2))
-        dphi = math.radians(float(lat2) - float(lat1))
-        dlambda = math.radians(float(lon2) - float(lon1))
-        a = (math.sin(dphi/2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda/2.0)**2)
-        return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
-    except Exception:
-        return float("inf")
 
 app.include_router(api)
 app.mount('/', StaticFiles(directory='dist', html=True), name='client')
@@ -1210,3 +1343,10 @@ async def spa_fallback(request: Request, exc: StarletteHTTPException):
     except Exception:
         pass
     raise exc
+
+"""
+docker compose down
+docker compose build
+docker compose up -d
+
+"""

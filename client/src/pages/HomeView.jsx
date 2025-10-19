@@ -198,6 +198,7 @@ export default function HomeView({ onAction, user, onNavigateRoutes }) {
                 key: `${r.id}-${car?.station_id || 'none'}`,
               }
             })
+            .filter(a => a.stop && a.stop !== '—') // ✅ 新增：只顯示有站點名稱的
             if (!cancelled) {
               setArrivals(itemsCur)
               setLastUpdated(new Date())

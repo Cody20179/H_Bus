@@ -7,6 +7,7 @@ import MemberManagement from '../pages/MemberManagement.vue'
 import RouteManagement from '../pages/RouteManagement.vue'
 import ReservationManagement from '../pages/ReservationManagement.vue'
 import CarManagement from '../pages/CarManagement.vue'
+import ScheduleManagement from '../pages/ScheduleManagement.vue'
 import { isLoggedIn } from '../services/authService'
 
 const routes = [
@@ -39,6 +40,11 @@ const routes = [
       {
         path: 'route-management',
         component: RouteManagement,
+        meta: { requiresAuth: true }
+      },
+      {
+        path: 'schedule-management',
+        component: ScheduleManagement,
         meta: { requiresAuth: true }
       }
     ]

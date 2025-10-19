@@ -37,10 +37,11 @@ class MySQL_Doing:
             conn = self._connect()
             with conn.cursor() as cursor:
                 cursor.execute(sql, params or ())
+                conn.commit()  # ✅ 無論 SELECT 或 UPDATE 都會提交
+
                 if cursor.description:
                     rows = cursor.fetchall()
                     return pd.DataFrame(rows)
-                conn.commit()
                 return None
         except OperationalError as e:
             print("[MySQL] OperationalError:", e)
@@ -50,3 +51,4 @@ class MySQL_Doing:
                 conn.close()
             except:
                 pass
+

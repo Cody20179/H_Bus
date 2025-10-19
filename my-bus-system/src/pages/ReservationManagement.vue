@@ -247,7 +247,13 @@
               </div>
               <div class="form-group full-width">
                 <label class="form-label">付款紀錄</label>
-                <textarea v-model="form.payment_record" class="form-textarea" rows="3"></textarea>
+                <textarea 
+                  v-model="form.payment_record" 
+                  class="form-textarea" 
+                  :class="{ 'readonly-field': editMode }"
+                  :readonly="editMode"
+                  rows="3"
+                ></textarea>
               </div>
             </div>
           </div>
@@ -407,8 +413,8 @@ async function save(){
     
     // 如果是編輯模式且訂單內容被鎖定，則排除訂單基本資訊欄位
     if (editMode.value && !isOrderEditable.value) {
-      // 只保留可編輯的狀態管理欄位
-      const editableFields = ['review_status', 'dispatch_status', 'payment_record']
+      // 只保留可編輯的狀態管理欄位（移除 payment_record）
+      const editableFields = ['review_status', 'dispatch_status']
       const statusPayload: any = { reservation_id: form.value.reservation_id }
       
       editableFields.forEach(field => {
@@ -621,6 +627,28 @@ onMounted(() => {
   font-size: 13px;
   color: #856404;
   line-height: 1.4;
+}
+
+/* 付款紀錄readonly樣式 */
+.readonly-field {
+  background: #f8f9fa !important;
+  color: #6c757d !important;
+  cursor: not-allowed !important;
+  border-color: #dee2e6 !important;
+}
+
+.readonly-field::placeholder {
+  color: #adb5bd !important;
+}
+
+.readonly-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #6c757d;
+  margin-top: 4px;
+  font-style: italic;
 }
 
 .payment-status-display {

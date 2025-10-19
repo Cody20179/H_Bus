@@ -1,5 +1,6 @@
 alembic @ file:///home/conda/feedstock_root/build_artifacts/alembic_1694690212886/work
 annotated-types==0.7.0
+apscheduler
 anyio @ file:///home/conda/feedstock_root/build_artifacts/anyio_1693488585952/work
 APScheduler==3.11.0
 argon2-cffi @ file:///home/conda/feedstock_root/build_artifacts/argon2-cffi_1692818318753/work

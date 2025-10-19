@@ -15,6 +15,7 @@
           <li @click="goTo('reservation')">預約管理</li>
           <li @click="goTo('car')">車輛管理</li>
           <li @click="goTo('route')">路線管理</li>
+          <li @click="goTo('schedule')">排班調度</li>
         </ul>
       </nav>
     </aside>
@@ -1846,6 +1847,9 @@ function goTo(page: string) {
       break
     case 'route':
       router.push('/home/route-management')
+      break
+    case 'schedule':
+      router.push('/home/schedule-management')
       break
     default:
       console.warn('未知的頁面:', page)

@@ -24,6 +24,7 @@ export default function MyReservations({ user, filterExpired = false }) {
   const [resvErr, setResvErr] = useState('')
   const [selectedResv, setSelectedResv] = useState(null)
   const [showRouteModal, setShowRouteModal] = useState(false)
+  const [showQr, setShowQr] = useState(false)
   const [cancelTarget, setCancelTarget] = useState(null)
   const [cancelReason, setCancelReason] = useState('')
   const [refreshTick, setRefreshTick] = useState(0)
@@ -38,18 +39,7 @@ export default function MyReservations({ user, filterExpired = false }) {
       setResvErr('')
       try {
         const data = await getMyReservations(uid)
-        if (!cancelled) {
-          setMyResv(data)
-          // 🧾 中文化輸出至 console
-          // console.log('🧾 訂單清單：')
-          // data.forEach((r) => {
-          //   console.log(`編號：${r.reservation_id}`)
-          //   console.log(`審核狀態：${translateStatus(r.review_status)} | 付款狀態：${translateStatus(r.payment_status)} | 派車狀態：${translateStatus(r.dispatch_status)}`)
-          //   console.log(`出發：${r.booking_start_station_name} → 到達：${r.booking_end_station_name}`)
-          //   console.log(`預約人數：${r.booking_number} | 建立時間：${r.booking_time}`)
-          //   console.log('-------------------------------------')
-          // })
-        }
+        if (!cancelled) setMyResv(data)
       } catch (e) {
         if (!cancelled) setResvErr(String(e.message || e))
       } finally {
@@ -128,7 +118,7 @@ export default function MyReservations({ user, filterExpired = false }) {
               <div className="resv-main">
                 <div className="resv-title">{r.booking_start_station_name} → {r.booking_end_station_name}</div>
                 <div className="resv-sub">{fmt(r.booking_time)} ・ {r.booking_number} 人</div>
-                <div className="small muted">預約編號：{r.reservation_id}</div>
+                <div className="small" style={{ color: '#000' }}>預約編號：{r.reservation_id}</div>
                 <div className="resv-status">
                   <span className={`status-chip ${cls(r.review_status)}`}>審核：{translateStatus(r.review_status)}</span>
                   <span className={`status-chip ${cls(r.payment_status)}`}>付款：{translateStatus(r.payment_status)}</span>
@@ -154,7 +144,7 @@ export default function MyReservations({ user, filterExpired = false }) {
               <h3 className="modal-title">路線資訊</h3>
               <button
                 className="modal-close"
-                onClick={() => setShowRouteModal(false)}
+                onClick={() => { setShowRouteModal(false); setShowQr(false) }}
                 style={{
                   fontSize: '22px',
                   fontWeight: '700',
@@ -192,7 +182,6 @@ export default function MyReservations({ user, filterExpired = false }) {
                     取消預約
                   </button>
 
-                  {/* ✅ 審核通過才允許付款 */}
                   {translateStatus(selectedResv.review_status) === '審核通過' ? (
                     <button
                       className="btn btn-blue"
@@ -224,18 +213,59 @@ export default function MyReservations({ user, filterExpired = false }) {
                   )}
                 </>
               ) : (
+                <>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '100%',
+                  textAlign: 'center',
+                  marginTop: '10px'
+                }}
+              >
                 <button
                   className="btn btn-green"
-                  onClick={() => {
-                    const qrUrl = `/qrcode/${selectedResv.reservation_id}`
-                    window.open(qrUrl, '_blank')
+                  onClick={() => setShowQr(v => !v)}
+                  style={{
+                    minWidth: '200px',
+                    marginBottom: '12px',
+                    alignSelf: 'center'
                   }}
                 >
-                  上車 QR Code
+                  {showQr ? '關閉 QR Code' : '上車 QR Code'}
                 </button>
+
+                {showQr && (
+                  <div
+                    className="qr-preview"
+                    style={{
+                      border: '1px solid #e5e5e5',
+                      background: '#fff',
+                      padding: '10px',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      width: '280px'
+                    }}
+                  >
+                    <img
+                      src={`/api/boarding_qr/${selectedResv.reservation_id}`}
+                      alt="上車 QR Code"
+                      style={{
+                        maxWidth: '260px',
+                        width: '100%',
+                        height: 'auto'
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+                </>
               )}
             </div>
-
           </div>
         </div>
       )}
