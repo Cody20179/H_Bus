@@ -7,12 +7,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 Infor = {
-    "host": os.getenv("MYSQL_HOST"),
-    "user": os.getenv("MYSQL_USER"),
-    "port": int(os.getenv("MYSQL_PORT")),  # 若未設置，預設 3306
-    "password": os.getenv("MYSQL_PASSWORD"),
-    "database": os.getenv("MYSQL_DATABASE"),
-    "table": os.getenv("MYSQL_TABLE")
+    "host": os.getenv("Host","127.0.0.1"),
+    "user": os.getenv("User","root"),
+    "port": int(os.getenv("Port",3307)),
+    "password": os.getenv("Password_SQL",""),
+    "database": os.getenv("Database",""),
 }
 
 db_path = os.getenv("SQLITE_PATH")

@@ -162,12 +162,11 @@ def _ensure_datetime_window(start: date, end: date) -> Tuple[datetime, datetime]
 load_dotenv()
 
 # MySQL 資料庫設定
-#DATABASE_URL = f"mysql+pymysql://root:109109@192.168.0.126:3307/bus_system"
-DB_USER = os.getenv("MYSQL_USER", "root")
-DB_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
-DB_HOST = os.getenv("MYSQL_HOST", "localhost")
-DB_PORT = os.getenv("MYSQL_PORT", "3306")
-DB_NAME = os.getenv("MYSQL_DATABASE", "bus_system")
+DB_USER = os.getenv("User","root")
+DB_PASSWORD = os.getenv("Password_SQL","")
+DB_HOST = os.getenv("Host","127.0.0.1")
+DB_PORT = int(os.getenv("Port",3307))
+DB_NAME = os.getenv("Database","")
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
